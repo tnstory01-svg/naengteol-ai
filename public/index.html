@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Naengteol AI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Hackathon MVP</p>
+        <h1>냉털AI</h1>
+        <p class="subtitle">냉장고 재료를 오늘의 식비 절약 메뉴로 바꿉니다.</p>
+      </div>
+      <div class="status-strip" aria-label="service status">
+        <span id="aiStatus" class="status-pill">AI 확인 중</span>
+        <span id="dbStatus" class="status-pill">DB 확인 중</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel input-panel" aria-labelledby="inputTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Step 1</p>
+          <h2 id="inputTitle">보유 재료</h2>
+        </div>
+
+        <form id="recommendForm" class="ingredient-form">
+          <label for="ingredientsText">냉장고에 있는 재료</label>
+          <textarea
+            id="ingredientsText"
+            name="ingredientsText"
+            rows="7"
+            placeholder="예: 계란, 김치, 두부, 밥, 대파"
+            required
+          ></textarea>
+
+          <div class="form-grid">
+            <label>
+              목표
+              <select id="goal" name="goal">
+                <option value="save_money">식비 절약</option>
+                <option value="quick">빠른 조리</option>
+                <option value="healthy">가벼운 식사</option>
+              </select>
+            </label>
+
+            <label>
+              인분
+              <input id="servings" name="servings" type="number" min="1" max="6" value="1" />
+            </label>
+
+            <label>
+              최대 조리 시간
+              <select id="maxCookTimeMinutes" name="maxCookTimeMinutes">
+                <option value="10">10분</option>
+                <option value="20" selected>20분</option>
+                <option value="30">30분</option>
+                <option value="45">45분</option>
+              </select>
+            </label>
+          </div>
+
+          <label for="priorityNotes">먼저 처리할 재료</label>
+          <input
+            id="priorityNotes"
+            name="priorityNotes"
+            type="text"
+            placeholder="예: 두부 유통기한 임박, 대파가 시들기 시작함"
+          />
+
+          <div class="button-row">
+            <button type="submit" class="primary-button">메뉴 추천받기</button>
+            <button type="button" id="demoButton" class="secondary-button">데모 재료 넣기</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel report-panel" aria-labelledby="reportTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Step 2</p>
+          <h2 id="reportTitle">절약 리포트</h2>
+        </div>
+
+        <div class="metric-block">
+          <span class="metric-label">오늘 예상 절약</span>
+          <strong id="bestSavings">0원</strong>
+        </div>
+
+        <div class="savings-bar" aria-hidden="true">
+          <span id="savingsBarFill"></span>
+        </div>
+
+        <dl class="cost-grid">
+          <div>
+            <dt>배달 기준</dt>
+            <dd id="deliveryCost">12,000원</dd>
+          </div>
+          <div>
+            <dt>집밥 기준</dt>
+            <dd id="homeCost">3,500원</dd>
+          </div>
+        </dl>
+
+        <div class="priority-box">
+          <span class="metric-label">먼저 써야 할 재료</span>
+          <div id="priorityIngredients" class="chip-row">
+            <span class="empty-state">추천 후 표시됩니다.</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="results-section" aria-labelledby="resultsTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Step 3</p>
+          <h2 id="resultsTitle">추천 메뉴</h2>
+        </div>
+
+        <div id="message" class="message">재료를 입력하면 만들 수 있는 메뉴 3가지를 보여줍니다.</div>
+        <div id="recipes" class="recipe-grid"></div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
+

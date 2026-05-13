@@ -45,3 +45,33 @@ Keep the first version focused on:
 ingredient input -> recipe results -> savings report
 ```
 
+## Local Development
+
+This MVP uses a dependency-free Node server, so it can run without installing
+packages.
+
+```bash
+node server.js
+```
+
+Then open:
+
+```text
+http://localhost:3000
+```
+
+Optional environment setup:
+
+```bash
+cp .env.example .env
+```
+
+Fill `OPENAI_API_KEY` and `OPENAI_MODEL` to use AI recommendations. Leave them
+empty to use the deterministic demo fallback.
+
+## API and Data
+
+- `POST /api/recommend` accepts ingredients and returns structured recipe cards.
+- OpenAI keys are read only by `server.js`.
+- Supabase logging is optional and uses the REST API from the server.
+- Database setup SQL is in `supabase/schema.sql`.
