@@ -2,7 +2,7 @@
 
 ## Product Goal
 
-Build a one-day hackathon MVP for Naengteol AI:
+Build a one-day hackathon MVP for 냉장고 재료:
 
 ```text
 ingredient input -> AI recipe recommendations -> savings report
@@ -155,4 +155,3 @@ values.
 - Do not expose API keys in frontend code.
 - Do not use `npm install` or `npm uninstall`.
 - Keep the first version small enough to demo reliably.
-

@@ -165,7 +165,7 @@ function setLoading(isLoading) {
 }
 
 function getAnonymousId() {
-  const key = "naengteol_anonymous_id";
+  const key = "fridge_ingredients_anonymous_id";
   const existing = localStorage.getItem(key);
   if (existing) {
     return existing;
@@ -198,4 +198,3 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-

@@ -1,5 +1,6 @@
 {
-  "name": "naengteol-ai",
+  "name": "fridge-ingredients",
+  "description": "냉장고 재료로 식비 절약 메뉴를 추천하는 해커톤 MVP",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,4 +12,3 @@
     "node": ">=18"
   }
 }
-

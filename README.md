@@ -1,8 +1,8 @@
-# Naengteol AI
+# 냉장고 재료
 
-Naengteol AI is a hackathon MVP for reducing food waste and daily meal costs.
-Users enter ingredients they already have, then receive recipe ideas, missing
-ingredients, priority ingredients to use first, and an estimated savings amount.
+냉장고 재료는 음식물 낭비와 하루 식비를 줄이기 위한 해커톤 MVP입니다.
+사용자가 이미 가진 재료를 입력하면 만들 수 있는 메뉴, 부족한 재료,
+먼저 써야 할 재료, 예상 절약 금액을 보여줍니다.
 
 ## One-Line Pitch
 
@@ -60,6 +60,12 @@ Then open:
 http://localhost:3000
 ```
 
+On Windows, double-click this file from the project folder:
+
+```text
+냉장고 재료 실행.cmd
+```
+
 Optional environment setup:
 
 ```bash
@@ -75,3 +81,14 @@ empty to use the deterministic demo fallback.
 - OpenAI keys are read only by `server.js`.
 - Supabase logging is optional and uses the REST API from the server.
 - Database setup SQL is in `supabase/schema.sql`.
+
+## Deployment
+
+Deployment-ready files are included:
+
+- `Dockerfile`
+- `render.yaml`
+- `railway.toml`
+- `Procfile`
+
+See `docs/deployment.md` for deployment settings and environment variables.

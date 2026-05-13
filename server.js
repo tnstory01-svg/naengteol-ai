@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 loadEnv(path.join(__dirname, ".env"));
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DEFAULT_DELIVERY_COST = 12000;
 const DEFAULT_HOME_COOKING_COST = 3500;
@@ -121,8 +122,9 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Naengteol AI running at http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  const displayHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+  console.log(`냉장고 재료 running at http://${displayHost}:${PORT}`);
 });
 
 async function handleRecommend(request, response) {
@@ -187,7 +189,7 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId })
       {
         role: "system",
         content: [
-          "You are Naengteol AI, a Korean home-cooking assistant.",
+          "You are 냉장고 재료, a Korean home-cooking assistant.",
           "Return only JSON that matches the provided schema.",
           "Recommend realistic meals from owned ingredients.",
           "Keep missing ingredients optional and cheap.",
@@ -527,4 +529,3 @@ function trimTrailingSlash(value) {
 function formatKrw(value) {
   return `${Number(value).toLocaleString("ko-KR")}원`;
 }
-
