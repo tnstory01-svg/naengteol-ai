@@ -12,6 +12,9 @@ out/
 .env.*
 !.env.example
 
+# Local server-side database
+data/
+
 # Logs
 *.log
 npm-debug.log*
@@ -24,4 +27,3 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
-

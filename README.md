@@ -75,9 +75,17 @@ cp .env.example .env
 Fill `OPENAI_API_KEY` and `OPENAI_MODEL` to use AI recommendations. Leave them
 empty to use the deterministic demo fallback.
 
+Authentication and pantry data are stored server-side in `./data/app.db.json`
+by default. The file is ignored by Git. Passwords are stored as scrypt hashes,
+and browser sessions use an HttpOnly cookie plus CSRF tokens.
+
 ## API and Data
 
 - `POST /api/recommend` accepts ingredients and returns structured recipe cards.
+- `POST /api/auth/register`, `POST /api/auth/login`, and `POST /api/auth/logout`
+  manage secure account sessions.
+- `GET /api/pantry` and `POST /api/pantry` manage saved ingredients for logged-in users.
+- `GET /api/recommendations` returns the logged-in user's saved recommendation history.
 - OpenAI keys are read only by `server.js`.
 - Supabase logging is optional and uses the REST API from the server.
 - Database setup SQL is in `supabase/schema.sql`.

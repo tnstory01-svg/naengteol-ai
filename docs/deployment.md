@@ -18,12 +18,17 @@ HOST=0.0.0.0
 PORT=<platform-provided>
 OPENAI_API_KEY=<optional>
 OPENAI_MODEL=gpt-4o-mini
+SESSION_TTL_DAYS=7
+SESSION_COOKIE_SECURE=true
+LOCAL_DB_PATH=<optional server-writable path>
 SUPABASE_URL=<optional>
 SUPABASE_SERVICE_ROLE_KEY=<optional>
 ```
 
 If `OPENAI_API_KEY` is empty, the app uses deterministic fallback recommendations.
-If Supabase variables are empty, recommendation logging is skipped.
+If Supabase variables are empty, server-side auth, pantry, and recommendation
+history still use the local JSON DB at `LOCAL_DB_PATH` or `./data/app.db.json`.
+Do not expose `SUPABASE_SERVICE_ROLE_KEY` or local DB files to the browser.
 
 ## Render
 
@@ -34,6 +39,7 @@ Set these secrets in Render:
 
 ```text
 OPENAI_API_KEY
+SESSION_COOKIE_SECURE=true
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 ```
@@ -56,4 +62,3 @@ Run:
 ```bash
 docker run --rm -p 3000:3000 --env-file .env fridge-ingredients
 ```
-
