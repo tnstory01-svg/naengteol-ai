@@ -1,4 +1,5 @@
 import http from "node:http";
+import https from "node:https";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -30,6 +31,8 @@ const SESSION_TTL_DAYS = clampInt(process.env.SESSION_TTL_DAYS, 1, 30, 7);
 const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 const DEFAULT_DELIVERY_COST = 12000;
 const DEFAULT_HOME_COOKING_COST = 3500;
+const USER_ROLES = new Set(["user", "admin"]);
+const USER_STATUSES = new Set(["active", "suspended"]);
 
 const db = new LocalDatabase(LOCAL_DB_PATH);
 const rateLimitBuckets = new Map();
@@ -121,6 +124,20 @@ const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
+    if (url.pathname.startsWith("/api/")) {
+      const ipBlock = await resolveIpBlock(request);
+      if (ipBlock) {
+        const auth = await resolveSession(request);
+        if (!auth || !isAdminUser(auth.user)) {
+          sendJson(response, 403, {
+            error: "This IP address is blocked.",
+            blockId: ipBlock.id
+          });
+          return;
+        }
+      }
+    }
+
     if (url.pathname.startsWith("/api/auth/") && request.method !== "GET") {
       if (!enforceRateLimit(request, response, "auth", 10, 60_000)) {
         return;
@@ -166,6 +183,34 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/support/chat") {
+      await handleSupportChat(request, response);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/overview") {
+      await handleAdminOverview(request, response);
+      return;
+    }
+
+    const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (adminUserMatch && request.method === "PATCH") {
+      await handleAdminUserUpdate(request, response, decodeURIComponent(adminUserMatch[1]));
+      return;
+    }
+
+    const adminUserIpMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/block-ip$/);
+    if (adminUserIpMatch && request.method === "POST") {
+      await handleAdminUserIpBlock(request, response, decodeURIComponent(adminUserIpMatch[1]));
+      return;
+    }
+
+    const adminIpBlockMatch = url.pathname.match(/^\/api\/admin\/ip-blocks\/([^/]+)$/);
+    if (adminIpBlockMatch && request.method === "DELETE") {
+      await handleAdminIpUnblock(request, response, decodeURIComponent(adminIpBlockMatch[1]));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/pantry") {
       await handlePantryList(request, response);
       return;
@@ -208,6 +253,9 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
+await db.init();
+await ensureAdminAccount();
+
 server.listen(PORT, HOST, () => {
   const displayHost = HOST === "0.0.0.0" ? "localhost" : HOST;
   console.log(`냉장고 재료 running at http://${displayHost}:${PORT}`);
@@ -240,6 +288,9 @@ async function handleRegister(request, response) {
       email,
       displayName,
       passwordHash,
+      role: "user",
+      status: "active",
+      permissions: {},
       createdAt: now,
       updatedAt: now
     };
@@ -274,6 +325,10 @@ async function handleLogin(request, response) {
 
   if (!validPassword) {
     throw new HttpError(401, "이메일 또는 비밀번호가 올바르지 않습니다.");
+  }
+
+  if (normalizeUserStatus(userRecord.status) !== "active") {
+    throw new HttpError(403, "This account is suspended.");
   }
 
   const user = publicUser(userRecord);
@@ -318,6 +373,159 @@ async function handleSession(request, response) {
     user: publicUser(auth.user),
     csrfToken: auth.session.csrfToken
   });
+}
+
+async function handleSupportChat(request, response) {
+  const payload = asObject(await readJson(request, 12_000));
+  const message = normalizeShortText(payload.message, 500);
+
+  if (!message) {
+    throw new HttpError(400, "문의 내용을 입력해주세요.");
+  }
+
+  const result = await createSupportReply(message);
+  sendJson(response, 200, result);
+}
+
+async function handleAdminOverview(request, response) {
+  const auth = await requireAdmin(request);
+  const overview = await db.get((data) => buildAdminOverview(data, auth.user.id));
+  sendJson(response, 200, overview);
+}
+
+async function handleAdminUserUpdate(request, response, userId) {
+  const auth = await requireAdmin(request, { requireCsrf: true });
+  const payload = asObject(await readJson(request, 16_000));
+  const hasRole = Object.hasOwn(payload, "role");
+  const hasStatus = Object.hasOwn(payload, "status");
+
+  if (!hasRole && !hasStatus) {
+    throw new HttpError(400, "No account changes were provided.");
+  }
+
+  const requestedRole = hasRole ? parseUserRole(payload.role) : null;
+  const requestedStatus = hasStatus ? parseUserStatus(payload.status) : null;
+  const now = new Date().toISOString();
+
+  const user = await db.mutate((data) => {
+    const record = data.users.find((item) => item.id === userId);
+    if (!record) {
+      throw new HttpError(404, "User not found.");
+    }
+
+    const currentRole = normalizeUserRole(record.role);
+    const currentStatus = normalizeUserStatus(record.status);
+    const nextRole = requestedRole || currentRole;
+    const nextStatus = requestedStatus || currentStatus;
+
+    if (record.id === auth.user.id && (nextRole !== currentRole || nextStatus !== currentStatus)) {
+      throw new HttpError(400, "You cannot change your own admin role or account status.");
+    }
+
+    if (currentRole === "admin" && nextRole !== "admin" && countAdminUsers(data) <= 1) {
+      throw new HttpError(400, "At least one admin account must remain.");
+    }
+
+    if (
+      currentRole === "admin" &&
+      currentStatus === "active" &&
+      nextStatus !== "active" &&
+      countActiveAdminUsers(data) <= 1
+    ) {
+      throw new HttpError(400, "At least one active admin account must remain.");
+    }
+
+    record.role = nextRole;
+    record.status = nextStatus;
+    record.permissions = asObject(record.permissions);
+    record.updatedAt = now;
+
+    if (nextStatus !== "active") {
+      data.sessions = data.sessions.filter((session) => session.userId !== record.id);
+    }
+
+    return buildAdminUser(record, data);
+  });
+
+  sendJson(response, 200, { user });
+}
+
+async function handleAdminUserIpBlock(request, response, userId) {
+  const auth = await requireAdmin(request, { requireCsrf: true });
+  const payload = asObject(await readJson(request, 16_000));
+  const reason = normalizeShortText(payload.reason, 180) || "Suspicious activity";
+  const currentAdminIpHash = hashClientAddress(getClientIp(request));
+  const now = new Date().toISOString();
+
+  const result = await db.mutate((data) => {
+    const target = data.users.find((item) => item.id === userId);
+    if (!target) {
+      throw new HttpError(404, "User not found.");
+    }
+
+    if (isAdminUser(target)) {
+      throw new HttpError(400, "Admin account IPs cannot be blocked from this action.");
+    }
+
+    const targetIpHashes = uniqueValues(
+      data.sessions
+        .filter((session) => session.userId === target.id)
+        .map((session) => session.ipHash)
+        .filter(Boolean)
+    );
+    const ipHashesToBlock = targetIpHashes.filter((ipHash) => ipHash !== currentAdminIpHash);
+
+    if (ipHashesToBlock.length === 0) {
+      throw new HttpError(400, "No blockable session IP was found for this user.");
+    }
+
+    data.ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
+    const createdBlocks = [];
+    for (const ipHash of ipHashesToBlock) {
+      const existing = data.ipBlocks.find((block) => block.ipHash === ipHash);
+      if (existing) {
+        continue;
+      }
+
+      const block = {
+        id: randomUUID(),
+        ipHash,
+        reason,
+        userId: target.id,
+        createdByUserId: auth.user.id,
+        createdAt: now
+      };
+      data.ipBlocks.push(block);
+      createdBlocks.push(block);
+    }
+
+    data.sessions = data.sessions.filter((session) => session.userId !== target.id);
+
+    return {
+      blockedCount: createdBlocks.length,
+      alreadyBlockedCount: ipHashesToBlock.length - createdBlocks.length,
+      skippedCurrentAdminIp: targetIpHashes.length !== ipHashesToBlock.length,
+      blocks: createdBlocks.map((block) => buildPublicIpBlock(block, data))
+    };
+  });
+
+  sendJson(response, 200, result);
+}
+
+async function handleAdminIpUnblock(request, response, blockId) {
+  await requireAdmin(request, { requireCsrf: true });
+  const block = await db.mutate((data) => {
+    data.ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
+    const index = data.ipBlocks.findIndex((item) => item.id === blockId);
+    if (index === -1) {
+      throw new HttpError(404, "IP block not found.");
+    }
+
+    const [removed] = data.ipBlocks.splice(index, 1);
+    return buildPublicIpBlock(removed, data);
+  });
+
+  sendJson(response, 200, { ok: true, block });
 }
 
 async function handlePantryList(request, response) {
@@ -666,6 +874,55 @@ async function supabaseInsert(url, headers, body) {
   }
 }
 
+async function ensureAdminAccount() {
+  const email = normalizeEmail(process.env.ADMIN_EMAIL);
+  const password = String(process.env.ADMIN_PASSWORD || "");
+
+  if (!email && !password) {
+    return;
+  }
+
+  if (!validateEmail(email)) {
+    throw new Error("ADMIN_EMAIL must be a valid email address.");
+  }
+
+  const passwordFailures = validatePassword(password);
+  if (passwordFailures.length) {
+    throw new Error("ADMIN_PASSWORD does not meet the password policy.");
+  }
+
+  const displayName = normalizeDisplayName(process.env.ADMIN_DISPLAY_NAME || "Admin", email);
+  const passwordHash = await hashPassword(password);
+  const now = new Date().toISOString();
+
+  await db.mutate((data) => {
+    const existing = data.users.find((item) => item.email === email);
+    if (existing) {
+      existing.displayName = displayName;
+      existing.passwordHash = passwordHash;
+      existing.role = "admin";
+      existing.status = "active";
+      existing.permissions = asObject(existing.permissions);
+      existing.updatedAt = now;
+      return publicUser(existing);
+    }
+
+    const record = {
+      id: randomUUID(),
+      email,
+      displayName,
+      passwordHash,
+      role: "admin",
+      status: "active",
+      permissions: {},
+      createdAt: now,
+      updatedAt: now
+    };
+    data.users.push(record);
+    return publicUser(record);
+  });
+}
+
 async function createUserSession(user, request) {
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
@@ -715,6 +972,10 @@ async function resolveSession(request) {
       return null;
     }
 
+    if (normalizeUserStatus(user.status) !== "active") {
+      return null;
+    }
+
     return {
       session,
       user
@@ -733,6 +994,23 @@ async function requireSession(request, options = {}) {
   }
 
   return auth;
+}
+
+async function requireAdmin(request, options = {}) {
+  const auth = await requireSession(request, options);
+  if (!isAdminUser(auth.user)) {
+    throw new HttpError(403, "Admin account required.");
+  }
+
+  return auth;
+}
+
+async function resolveIpBlock(request) {
+  const ipHash = hashClientAddress(getClientIp(request));
+  return db.get((data) => {
+    const ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
+    return ipBlocks.find((block) => block.ipHash === ipHash) || null;
+  });
 }
 
 function createFallbackRecommendation(ingredients, preferences) {
@@ -1045,8 +1323,358 @@ function publicUser(user) {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    role: normalizeUserRole(user.role),
+    status: normalizeUserStatus(user.status),
     createdAt: user.createdAt
   };
+}
+
+async function createSupportReply(message) {
+  const text = message.toLowerCase();
+  const intents = [
+    {
+      id: "login",
+      keywords: ["로그인", "회원", "가입", "비밀번호", "계정"],
+      answer:
+        "로그인/회원가입은 메인 화면의 Account 영역에서 할 수 있습니다. 비밀번호는 10자 이상이고 영문과 숫자를 모두 포함해야 합니다.",
+      suggestions: ["비밀번호 조건", "회원가입 방법", "로그아웃"]
+    },
+    {
+      id: "recommend",
+      keywords: ["추천", "메뉴", "요리", "재료", "냉장고", "레시피"],
+      answer:
+        "보유 재료를 쉼표나 줄바꿈으로 입력하면 메뉴 3가지를 추천합니다. 로그인하면 추천 기록과 예상 절약 금액이 저장됩니다.",
+      suggestions: ["재료 입력", "추천 기록", "식비 절약"]
+    },
+    {
+      id: "pantry",
+      keywords: ["저장", "재료 db", "재료db", "유통기한", "소비기한", "삭제"],
+      answer:
+        "로그인 후 재료 DB에 재료명, 수량, 소비기한을 저장할 수 있습니다. 저장된 재료는 추천 입력란으로 바로 옮길 수 있습니다.",
+      suggestions: ["재료 저장", "소비기한", "재료 삭제"]
+    },
+    {
+      id: "admin",
+      keywords: ["관리자", "admin", "권한", "차단", "ip", "정지"],
+      answer:
+        "관리자 계정은 사용자 목록, 계정 상태, 권한, 의심 IP 차단을 관리합니다. 일반 계정에서는 관리자 API와 화면이 열리지 않습니다.",
+      suggestions: ["사용자 정지", "IP 차단", "권한 변경"]
+    },
+    {
+      id: "notes",
+      keywords: ["메모", "노트", "할일", "기록", "체크"],
+      answer:
+        "메모장 화면에서 자취 생활 메모, 장보기 계획, 할 일을 저장할 수 있습니다. 현재 메모는 이 브라우저의 localStorage에 저장됩니다.",
+      suggestions: ["메모 저장", "장보기 메모", "할 일 관리"]
+    },
+    {
+      id: "shopping",
+      keywords: [
+        "장바구니",
+        "쇼핑",
+        "필수품",
+        "자취",
+        "구매",
+        "쿠팡",
+        "네이버",
+        "11번가",
+        "g마켓",
+        "shopping",
+        "cart",
+        "basket",
+        "living",
+        "apartment",
+        "checklist",
+        "essential",
+        "essentials"
+      ],
+      answer:
+        "자취 장바구니 화면에서 주방, 청소, 욕실, 생활 필수품을 체크하고 쇼핑몰 검색 링크로 바로 이동할 수 있습니다.",
+      suggestions: ["자취 필수품", "주방 기본템", "청소 용품"]
+    },
+    {
+      id: "privacy",
+      keywords: ["개인정보", "보안", "세션", "데이터", "삭제"],
+      answer:
+        "계정, 세션, 추천 기록은 서버 쪽 로컬 DB에 저장됩니다. IP 차단은 원문 IP가 아니라 해시 지문으로 관리합니다.",
+      suggestions: ["데이터 저장 위치", "IP 차단 방식", "로그아웃"]
+    }
+  ];
+
+  const search = await searchWebSummary(message);
+  if (search.answer) {
+    return {
+      intent: "search",
+      answer: search.answer,
+      suggestions: ["관련 링크 확인", "더 구체적으로 질문하기", "메모장에 기록하기"],
+      links: search.links
+    };
+  }
+
+  const matched = intents.find((intent) => intent.keywords.some((keyword) => text.includes(keyword)));
+  if (matched) {
+    return {
+      intent: matched.id,
+      answer: matched.answer,
+      suggestions: matched.suggestions,
+      links: createSearchLinks(message)
+    };
+  }
+
+  return {
+    intent: "fallback",
+    answer:
+      "지금은 기본 문의만 자동 응답할 수 있습니다. 로그인, 메뉴 추천, 재료 DB, 관리자, 메모장, 자취 장바구니 중 하나를 물어보면 더 정확히 답할게요.",
+    suggestions: ["메뉴 추천은 어떻게 해?", "자취 필수품 알려줘", "관리자는 무엇을 할 수 있어?"],
+    links: createSearchLinks(message)
+  };
+}
+
+async function searchWebSummary(query) {
+  const encoded = encodeURIComponent(query);
+  const url = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`;
+
+  try {
+    const data = JSON.parse(await requestTextWithTimeout(url, 3500));
+    const related = extractDuckDuckGoRelatedTopic(data.RelatedTopics);
+    const answer = normalizeShortText(data.AbstractText || data.Answer || related?.text || "", 900);
+    const links = [
+      ...uniqueSearchLinks([
+        data.AbstractURL ? { name: data.Heading || "DuckDuckGo result", url: data.AbstractURL } : null,
+        related?.url ? { name: "Related result", url: related.url } : null,
+        ...createSearchLinks(query)
+      ])
+    ];
+
+    return {
+      answer,
+      links
+    };
+  } catch {
+    return { answer: "", links: createSearchLinks(query) };
+  }
+}
+
+function requestTextWithTimeout(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "curl/8.0"
+        },
+        timeout: timeoutMs
+      },
+      (response) => {
+        if (response.statusCode && response.statusCode >= 400) {
+          response.resume();
+          reject(new Error(`Search request failed with ${response.statusCode}`));
+          return;
+        }
+
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => resolve(body));
+      }
+    );
+
+    request.on("timeout", () => {
+      request.destroy(new Error("Search request timed out."));
+    });
+    request.on("error", reject);
+  });
+}
+
+function extractDuckDuckGoRelatedTopic(topics) {
+  if (!Array.isArray(topics)) {
+    return null;
+  }
+
+  for (const topic of topics) {
+    if (topic?.Text && topic?.FirstURL) {
+      return {
+        text: topic.Text,
+        url: topic.FirstURL
+      };
+    }
+
+    const nested = extractDuckDuckGoRelatedTopic(topic?.Topics);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
+function createSearchLinks(query) {
+  const encoded = encodeURIComponent(query);
+  return [
+    {
+      name: "네이버 검색",
+      url: `https://search.naver.com/search.naver?query=${encoded}`
+    },
+    {
+      name: "Google 검색",
+      url: `https://www.google.com/search?q=${encoded}`
+    },
+    {
+      name: "DuckDuckGo 검색",
+      url: `https://duckduckgo.com/?q=${encoded}`
+    }
+  ];
+}
+
+function uniqueSearchLinks(links) {
+  const seen = new Set();
+  return links.filter((link) => {
+    if (!link?.url || seen.has(link.url)) {
+      return false;
+    }
+    seen.add(link.url);
+    return true;
+  });
+}
+
+function buildAdminOverview(data, currentUserId) {
+  const users = (Array.isArray(data.users) ? data.users : [])
+    .map((user) => buildAdminUser(user, data))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const activeSessions = (Array.isArray(data.sessions) ? data.sessions : []).filter(
+    (session) => new Date(session.expiresAt).getTime() > Date.now()
+  );
+  const ipBlocks = (Array.isArray(data.ipBlocks) ? data.ipBlocks : [])
+    .map((block) => buildPublicIpBlock(block, data))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  return {
+    currentUserId,
+    stats: {
+      totalUsers: users.length,
+      activeUsers: users.filter((user) => user.status === "active").length,
+      suspendedUsers: users.filter((user) => user.status === "suspended").length,
+      adminUsers: users.filter((user) => user.role === "admin").length,
+      activeSessions: activeSessions.length,
+      blockedIps: ipBlocks.length
+    },
+    users,
+    ipBlocks
+  };
+}
+
+function buildAdminUser(user, data) {
+  const sessions = (Array.isArray(data.sessions) ? data.sessions : [])
+    .filter((session) => session.userId === user.id)
+    .sort((a, b) => String(b.lastSeenAt || b.createdAt).localeCompare(String(a.lastSeenAt || a.createdAt)));
+  const activeSessions = sessions.filter((session) => new Date(session.expiresAt).getTime() > Date.now());
+  const ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
+  const pantryItems = (Array.isArray(data.pantryItems) ? data.pantryItems : []).filter(
+    (item) => item.userId === user.id
+  );
+  const recommendationLogs = (Array.isArray(data.recommendationLogs) ? data.recommendationLogs : []).filter(
+    (log) => log.userId === user.id
+  );
+  const savingsTotal = (Array.isArray(data.savingsLogs) ? data.savingsLogs : [])
+    .filter((log) => log.userId === user.id)
+    .reduce((sum, log) => sum + Number(log.estimatedSavings || 0), 0);
+
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: normalizeUserRole(user.role),
+    status: normalizeUserStatus(user.status),
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    pantryCount: pantryItems.length,
+    recommendationCount: recommendationLogs.length,
+    savingsTotal,
+    activeSessionCount: activeSessions.length,
+    lastSeenAt: sessions[0]?.lastSeenAt || sessions[0]?.createdAt || null,
+    sessions: sessions.slice(0, 5).map((session) => ({
+      id: session.id,
+      createdAt: session.createdAt,
+      lastSeenAt: session.lastSeenAt || session.createdAt,
+      expiresAt: session.expiresAt,
+      userAgent: session.userAgent || "",
+      ipFingerprint: formatIpFingerprint(session.ipHash),
+      blocked: ipBlocks.some((block) => block.ipHash === session.ipHash)
+    }))
+  };
+}
+
+function buildPublicIpBlock(block, data) {
+  const users = Array.isArray(data.users) ? data.users : [];
+  const target = users.find((user) => user.id === block.userId);
+  const createdBy = users.find((user) => user.id === block.createdByUserId);
+
+  return {
+    id: block.id,
+    ipFingerprint: formatIpFingerprint(block.ipHash),
+    reason: block.reason || "",
+    createdAt: block.createdAt,
+    user: target
+      ? {
+          id: target.id,
+          email: target.email,
+          displayName: target.displayName
+        }
+      : null,
+    createdBy: createdBy
+      ? {
+          id: createdBy.id,
+          email: createdBy.email,
+          displayName: createdBy.displayName
+        }
+      : null
+  };
+}
+
+function isAdminUser(user) {
+  return normalizeUserRole(user?.role) === "admin" && normalizeUserStatus(user?.status) === "active";
+}
+
+function normalizeUserRole(value) {
+  const role = String(value || "user").trim().toLowerCase();
+  return USER_ROLES.has(role) ? role : "user";
+}
+
+function normalizeUserStatus(value) {
+  const status = String(value || "active").trim().toLowerCase();
+  return USER_STATUSES.has(status) ? status : "active";
+}
+
+function parseUserRole(value) {
+  const role = String(value || "").trim().toLowerCase();
+  if (!USER_ROLES.has(role)) {
+    throw new HttpError(400, "Invalid account role.");
+  }
+  return role;
+}
+
+function parseUserStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (!USER_STATUSES.has(status)) {
+    throw new HttpError(400, "Invalid account status.");
+  }
+  return status;
+}
+
+function countAdminUsers(data) {
+  return data.users.filter((user) => normalizeUserRole(user.role) === "admin").length;
+}
+
+function countActiveAdminUsers(data) {
+  return data.users.filter((user) => isAdminUser(user)).length;
+}
+
+function formatIpFingerprint(ipHash) {
+  const value = String(ipHash || "");
+  return value ? `ip:${value.slice(0, 8)}...${value.slice(-6)}` : "ip:unknown";
 }
 
 function normalizeDisplayName(value, email) {
@@ -1203,6 +1831,10 @@ function asStringArray(value, fallback) {
 
   const normalized = value.map((item) => normalizeShortText(item, 120)).filter(Boolean);
   return normalized.length ? normalized : fallback;
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function clampInt(value, min, max, fallback) {

@@ -5,6 +5,9 @@ create table if not exists public.app_users (
   email text not null,
   display_name text not null,
   password_hash text not null,
+  role text not null default 'user' check (role in ('user', 'admin')),
+  status text not null default 'active' check (status in ('active', 'suspended')),
+  permissions jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -26,6 +29,18 @@ create table if not exists public.app_user_sessions (
 
 create index if not exists app_user_sessions_user_id_expires_at_idx
   on public.app_user_sessions (user_id, expires_at desc);
+
+create table if not exists public.ip_blocks (
+  id uuid primary key default gen_random_uuid(),
+  ip_hash text not null unique,
+  reason text,
+  user_id uuid references public.app_users (id) on delete set null,
+  created_by_user_id uuid references public.app_users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ip_blocks_user_id_created_at_idx
+  on public.ip_blocks (user_id, created_at desc);
 
 create table if not exists public.anonymous_users (
   id uuid primary key default gen_random_uuid(),
@@ -83,6 +98,7 @@ create index if not exists savings_logs_anonymous_id_created_at_idx
 
 alter table public.app_users enable row level security;
 alter table public.app_user_sessions enable row level security;
+alter table public.ip_blocks enable row level security;
 alter table public.anonymous_users enable row level security;
 alter table public.pantry_items enable row level security;
 alter table public.recommendation_logs enable row level security;

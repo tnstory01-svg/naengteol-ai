@@ -18,6 +18,12 @@ const accountEmail = document.querySelector("#accountEmail");
 const accountName = document.querySelector("#accountName");
 const authMessage = document.querySelector("#authMessage");
 const logoutButton = document.querySelector("#logoutButton");
+const adminPanel = document.querySelector("#adminPanel");
+const adminSummary = document.querySelector("#adminSummary");
+const adminRefreshButton = document.querySelector("#adminRefreshButton");
+const adminUserList = document.querySelector("#adminUserList");
+const adminIpBlockList = document.querySelector("#adminIpBlockList");
+const adminMessage = document.querySelector("#adminMessage");
 const pantryForm = document.querySelector("#pantryForm");
 const pantryList = document.querySelector("#pantryList");
 const usePantryButton = document.querySelector("#usePantryButton");
@@ -333,6 +339,7 @@ const state = {
   pantry: [],
   history: [],
   totalSavings: 0,
+  adminOverview: null,
   explorer: getDefaultExplorerSelection()
 };
 
@@ -388,6 +395,31 @@ function bindEvents() {
       document.querySelector("#ingredientsText").value = names.join(", ");
       setAuthMessage("저장된 재료를 입력란에 반영했습니다.", false);
     }
+  });
+
+  adminRefreshButton.addEventListener("click", async () => {
+    await refreshAdminOverview();
+  });
+
+  adminUserList.addEventListener("click", async (event) => {
+    const saveButton = event.target.closest("[data-admin-save-user]");
+    if (saveButton) {
+      await saveAdminUser(saveButton.dataset.adminSaveUser);
+      return;
+    }
+
+    const blockButton = event.target.closest("[data-admin-block-ip]");
+    if (blockButton) {
+      await blockAdminUserIp(blockButton.dataset.adminBlockIp);
+    }
+  });
+
+  adminIpBlockList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-admin-unblock-ip]");
+    if (!button) {
+      return;
+    }
+    await unblockAdminIp(button.dataset.adminUnblockIp);
   });
 
   majorCategories.addEventListener("click", (event) => {
@@ -479,6 +511,13 @@ async function hydrateProtectedData() {
   state.pantry = pantry.items || [];
   state.history = history.logs || [];
   state.totalSavings = history.totalSavings || 0;
+
+  if (isAdmin()) {
+    const overview = await apiFetch("/api/admin/overview");
+    state.adminOverview = overview;
+  } else {
+    state.adminOverview = null;
+  }
 }
 
 async function submitAuthForm(targetForm, endpoint, successMessage) {
@@ -548,6 +587,78 @@ async function refreshHistory() {
   state.history = data.logs || [];
   state.totalSavings = data.totalSavings || 0;
   renderHistory();
+}
+
+async function refreshAdminOverview() {
+  if (!isAdmin()) {
+    state.adminOverview = null;
+    renderAdmin();
+    return;
+  }
+
+  adminRefreshButton.disabled = true;
+  try {
+    state.adminOverview = await apiFetch("/api/admin/overview");
+    renderAdmin();
+    setAdminMessage("Admin data refreshed.", false);
+  } catch (error) {
+    setAdminMessage(formatError(error), true);
+  } finally {
+    adminRefreshButton.disabled = false;
+  }
+}
+
+async function saveAdminUser(userId) {
+  const row = [...adminUserList.querySelectorAll("[data-admin-user]")].find(
+    (item) => item.dataset.adminUser === userId
+  );
+  if (!row) {
+    return;
+  }
+
+  const role = row.querySelector("[data-admin-role]")?.value || "user";
+  const status = row.querySelector("[data-admin-status]")?.value || "active";
+
+  try {
+    await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role, status })
+    });
+    await refreshAdminOverview();
+    setAdminMessage("Account permissions updated.", false);
+  } catch (error) {
+    setAdminMessage(formatError(error), true);
+  }
+}
+
+async function blockAdminUserIp(userId) {
+  const reason = window.prompt("Block reason", "Suspicious activity");
+  if (reason === null) {
+    return;
+  }
+
+  try {
+    const result = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/block-ip`, {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    });
+    await refreshAdminOverview();
+    setAdminMessage(`Blocked ${result.blockedCount} IP fingerprint(s).`, false);
+  } catch (error) {
+    setAdminMessage(formatError(error), true);
+  }
+}
+
+async function unblockAdminIp(blockId) {
+  try {
+    await apiFetch(`/api/admin/ip-blocks/${encodeURIComponent(blockId)}`, {
+      method: "DELETE"
+    });
+    await refreshAdminOverview();
+    setAdminMessage("IP block removed.", false);
+  } catch (error) {
+    setAdminMessage(formatError(error), true);
+  }
 }
 
 async function requestRecommendation() {
@@ -624,10 +735,12 @@ function clearAuthState() {
   state.pantry = [];
   state.history = [];
   state.totalSavings = 0;
+  state.adminOverview = null;
 }
 
 function renderAll() {
   renderAuth();
+  renderAdmin();
   renderPantry();
   renderHistory();
 }
@@ -640,12 +753,143 @@ function renderAuth() {
     authStatus.textContent = `${state.user.email} 로그인`;
     authStatus.className = "status-pill ready";
     accountEmail.textContent = state.user.email;
-    accountName.textContent = state.user.displayName || "";
+    accountName.textContent = [state.user.displayName, state.user.role === "admin" ? "Admin" : ""]
+      .filter(Boolean)
+      .join(" · ");
   } else {
     authStatus.textContent = "비로그인";
     authStatus.className = "status-pill fallback";
     accountEmail.textContent = "-";
     accountName.textContent = "";
+  }
+}
+
+function isAdmin() {
+  return state.authenticated && state.user?.role === "admin" && state.user?.status === "active";
+}
+
+function renderAdmin() {
+  const visible = isAdmin();
+  adminPanel.classList.toggle("hidden", !visible);
+
+  if (!visible) {
+    adminSummary.innerHTML = "";
+    adminUserList.innerHTML = '<span class="empty-state">Admin access is required.</span>';
+    adminIpBlockList.innerHTML = '<span class="empty-state">Admin access is required.</span>';
+    setAdminMessage("", false);
+    return;
+  }
+
+  const overview = state.adminOverview;
+  if (!overview) {
+    adminSummary.innerHTML = "";
+    adminUserList.innerHTML = '<span class="empty-state">Loading admin data.</span>';
+    adminIpBlockList.innerHTML = '<span class="empty-state">Loading blocked IPs.</span>';
+    return;
+  }
+
+  const stats = overview.stats || {};
+  adminSummary.innerHTML = [
+    ["Users", stats.totalUsers],
+    ["Active", stats.activeUsers],
+    ["Suspended", stats.suspendedUsers],
+    ["Admins", stats.adminUsers],
+    ["Sessions", stats.activeSessions],
+    ["Blocked IPs", stats.blockedIps]
+  ]
+    .map(
+      ([label, value]) => `
+        <div>
+          <span class="metric-label">${escapeHtml(label)}</span>
+          <strong>${Number(value || 0).toLocaleString("ko-KR")}</strong>
+        </div>
+      `
+    )
+    .join("");
+
+  renderAdminUsers(overview.users || []);
+  renderAdminIpBlocks(overview.ipBlocks || []);
+}
+
+function renderAdminUsers(users) {
+  adminUserList.innerHTML = "";
+
+  if (!users.length) {
+    adminUserList.innerHTML = '<span class="empty-state">No users found.</span>';
+    return;
+  }
+
+  for (const user of users) {
+    const row = document.createElement("div");
+    const isSelf = user.id === state.user?.id;
+    const isAdminAccount = user.role === "admin";
+    const sessionTags = (user.sessions || [])
+      .map(
+        (session) => `
+          <span class="${session.blocked ? "blocked" : ""}">
+            ${escapeHtml(session.ipFingerprint)} · ${escapeHtml(formatDateTime(session.lastSeenAt))}
+          </span>
+        `
+      )
+      .join("");
+
+    row.className = "data-row admin-user-row";
+    row.dataset.adminUser = user.id;
+    row.innerHTML = `
+      <div class="admin-user-main">
+        <strong>${escapeHtml(user.email)}</strong>
+        <span>${escapeHtml(user.displayName || "-")} · ${escapeHtml(user.role)} · ${escapeHtml(user.status)}</span>
+        <span>${Number(user.recommendationCount || 0).toLocaleString("ko-KR")} recs · ${formatKrw(
+          user.savingsTotal
+        )} saved · ${Number(user.activeSessionCount || 0).toLocaleString("ko-KR")} active sessions</span>
+        <span>Last seen ${escapeHtml(user.lastSeenAt ? formatDateTime(user.lastSeenAt) : "never")}</span>
+        <div class="admin-session-list">${sessionTags || "<span>No active session IPs</span>"}</div>
+      </div>
+      <div class="admin-controls">
+        <select data-admin-role ${isSelf ? "disabled" : ""}>
+          <option value="user" ${user.role === "user" ? "selected" : ""}>User</option>
+          <option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option>
+        </select>
+        <select data-admin-status ${isSelf ? "disabled" : ""}>
+          <option value="active" ${user.status === "active" ? "selected" : ""}>Active</option>
+          <option value="suspended" ${user.status === "suspended" ? "selected" : ""}>Suspended</option>
+        </select>
+        <button type="button" class="secondary-button" data-admin-save-user="${escapeAttr(user.id)}" ${
+          isSelf ? "disabled" : ""
+        }>Save</button>
+        <button type="button" class="text-button" data-admin-block-ip="${escapeAttr(user.id)}" ${
+          isSelf || isAdminAccount ? "disabled" : ""
+        }>Block IP</button>
+      </div>
+    `;
+    adminUserList.append(row);
+  }
+}
+
+function renderAdminIpBlocks(blocks) {
+  adminIpBlockList.innerHTML = "";
+
+  if (!blocks.length) {
+    adminIpBlockList.innerHTML = '<span class="empty-state">No blocked IPs.</span>';
+    return;
+  }
+
+  for (const block of blocks) {
+    const row = document.createElement("div");
+    row.className = "data-row";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(block.ipFingerprint)}</strong>
+        <span>${escapeHtml(block.user?.email || "Unknown user")} · ${escapeHtml(
+          block.reason || "No reason"
+        )}</span>
+        <span>${escapeHtml(formatDateTime(block.createdAt))}</span>
+      </div>
+      <button type="button" class="secondary-button compact-button" data-admin-unblock-ip="${escapeAttr(
+        block.id
+      )}">Unblock</button>
+    `;
+    adminIpBlockList.append(row);
   }
 }
 
@@ -972,6 +1216,11 @@ function switchAuthTab(tab) {
 function setAuthMessage(text, isError) {
   authMessage.textContent = text;
   authMessage.classList.toggle("error", Boolean(isError));
+}
+
+function setAdminMessage(text, isError) {
+  adminMessage.textContent = text;
+  adminMessage.classList.toggle("error", Boolean(isError));
 }
 
 function showMessage(text, isError) {
