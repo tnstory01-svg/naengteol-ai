@@ -87,7 +87,12 @@ and browser sessions use an HttpOnly cookie plus CSRF tokens.
 - `GET /api/pantry` and `POST /api/pantry` manage saved ingredients for logged-in users.
 - `GET /api/recommendations` returns the logged-in user's saved recommendation history.
 - OpenAI keys are read only by `server.js`.
-- Supabase logging is optional and uses the REST API from the server.
+- Supabase can be used as the primary server-side database through the REST API.
+- Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_DB_ENABLED=true`
+  after running `supabase/schema.sql`.
+- Leave Supabase values empty to keep using the local JSON DB at `./data/app.db.json`.
+- When `SUPABASE_DB_ENABLED=false`, Supabase can still receive recommendation
+  logs through `SUPABASE_RECOMMENDATION_TABLE` and `SUPABASE_SAVINGS_TABLE`.
 - Database setup SQL is in `supabase/schema.sql`.
 
 ## Deployment

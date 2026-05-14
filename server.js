@@ -16,6 +16,7 @@ import {
   verifyPassword
 } from "./lib/auth.js";
 import { LocalDatabase } from "./lib/local-db.js";
+import { SupabaseDatabase } from "./lib/supabase-db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,13 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, "data", "app.db.json");
+const SUPABASE_URL = trimTrailingSlash(process.env.SUPABASE_URL || "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_SCHEMA = process.env.SUPABASE_SCHEMA || "public";
+const SUPABASE_DB_ENABLED = parseBooleanFlag(
+  process.env.SUPABASE_DB_ENABLED,
+  Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY)
+);
 const SESSION_COOKIE_NAME = "fi_session";
 const SESSION_TTL_DAYS = clampInt(process.env.SESSION_TTL_DAYS, 1, 30, 7);
 const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -34,7 +42,14 @@ const DEFAULT_HOME_COOKING_COST = 3500;
 const USER_ROLES = new Set(["user", "admin"]);
 const USER_STATUSES = new Set(["active", "suspended"]);
 
-const db = new LocalDatabase(LOCAL_DB_PATH);
+const db = SUPABASE_DB_ENABLED && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? new SupabaseDatabase({
+      url: SUPABASE_URL,
+      serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+      schema: SUPABASE_SCHEMA,
+      maxRows: clampInt(process.env.SUPABASE_MAX_ROWS, 100, 50_000, 5000)
+    })
+  : new LocalDatabase(LOCAL_DB_PATH);
 const rateLimitBuckets = new Map();
 
 const MIME_TYPES = {
@@ -156,8 +171,10 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         openaiConfigured: Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL),
-        supabaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
-        localDbConfigured: true,
+        supabaseConfigured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
+        supabaseDatabaseConfigured: db.provider === "supabase",
+        localDbConfigured: db.provider === "local",
+        databaseProvider: db.provider || "local",
         authConfigured: true
       });
       return;
@@ -664,14 +681,6 @@ async function handleRecommend(request, response) {
   }
 
   const normalized = normalizeRecommendation(recommendation, ingredients);
-  const supabaseLogging = await logRecommendationToSupabase({
-    userId: auth?.user.id || null,
-    anonymousId,
-    inputIngredients: ingredients,
-    preferences,
-    recommendation: normalized,
-    source
-  });
   const localLogging = await logRecommendationLocally({
     auth,
     anonymousId,
@@ -680,6 +689,16 @@ async function handleRecommend(request, response) {
     recommendation: normalized,
     source
   });
+  const supabaseLogging = db.provider === "supabase"
+    ? { enabled: true, stored: localLogging.stored, primary: true }
+    : await logRecommendationToSupabase({
+        userId: auth?.user.id || null,
+        anonymousId,
+        inputIngredients: ingredients,
+        preferences,
+        recommendation: normalized,
+        source
+      });
 
   sendJson(response, 200, {
     ...normalized,
@@ -773,7 +792,7 @@ async function logRecommendationLocally({
   recommendation,
   source
 }) {
-  if (!auth) {
+  if (!auth && db.provider !== "supabase") {
     return { enabled: true, stored: false, reason: "login_required" };
   }
 
@@ -781,7 +800,7 @@ async function logRecommendationLocally({
   await db.mutate((data) => {
     data.recommendationLogs.push({
       id: randomUUID(),
-      userId: auth.user.id,
+      userId: auth?.user.id || null,
       anonymousId,
       inputIngredients,
       preferences,
@@ -794,15 +813,18 @@ async function logRecommendationLocally({
     if (topRecipe) {
       data.savingsLogs.push({
         id: randomUUID(),
-        userId: auth.user.id,
+        userId: auth?.user.id || null,
+        anonymousId,
         recipeName: topRecipe.name,
         estimatedSavings: topRecipe.estimatedSavings,
         createdAt: now
       });
     }
 
-    trimUserLogs(data.recommendationLogs, auth.user.id, 200);
-    trimUserLogs(data.savingsLogs, auth.user.id, 500);
+    if (auth) {
+      trimUserLogs(data.recommendationLogs, auth.user.id, 200);
+      trimUserLogs(data.savingsLogs, auth.user.id, 500);
+    }
   });
 
   return { enabled: true, stored: true };
@@ -816,24 +838,26 @@ async function logRecommendationToSupabase({
   recommendation,
   source
 }) {
-  const supabaseUrl = trimTrailingSlash(process.env.SUPABASE_URL || "");
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const recommendationTable = process.env.SUPABASE_RECOMMENDATION_TABLE || "recommendation_logs";
   const savingsTable = process.env.SUPABASE_SAVINGS_TABLE || "savings_logs";
 
-  if (!supabaseUrl || !serviceKey) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return { enabled: false, stored: false };
   }
 
   const headers = {
-    apikey: serviceKey,
-    Authorization: `Bearer ${serviceKey}`,
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
     "Content-Type": "application/json",
     Prefer: "return=minimal"
   };
+  if (SUPABASE_SCHEMA !== "public") {
+    headers["Accept-Profile"] = SUPABASE_SCHEMA;
+    headers["Content-Profile"] = SUPABASE_SCHEMA;
+  }
 
   try {
-    await supabaseInsert(`${supabaseUrl}/rest/v1/${recommendationTable}`, headers, {
+    await supabaseInsert(`${SUPABASE_URL}/rest/v1/${recommendationTable}`, headers, {
       user_id: userId,
       anonymous_id: anonymousId,
       input_ingredients: inputIngredients,
@@ -846,7 +870,7 @@ async function logRecommendationToSupabase({
 
     const topRecipe = recommendation.recipes[0];
     if (topRecipe) {
-      await supabaseInsert(`${supabaseUrl}/rest/v1/${savingsTable}`, headers, {
+      await supabaseInsert(`${SUPABASE_URL}/rest/v1/${savingsTable}`, headers, {
         user_id: userId,
         anonymous_id: anonymousId,
         recipe_name: topRecipe.name,
@@ -1843,6 +1867,14 @@ function clampInt(value, min, max, fallback) {
     return fallback;
   }
   return Math.min(max, Math.max(min, number));
+}
+
+function parseBooleanFlag(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
 }
 
 function trimTrailingSlash(value) {

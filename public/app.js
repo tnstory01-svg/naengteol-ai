@@ -475,7 +475,11 @@ async function hydrateHealth() {
     aiStatus.className = `status-pill ${data.openaiConfigured ? "ready" : "fallback"}`;
 
     const dbReady = data.localDbConfigured || data.supabaseConfigured;
-    dbStatus.textContent = data.supabaseConfigured ? "Supabase + 로컬 DB" : "로컬 DB 준비";
+    dbStatus.textContent = data.supabaseDatabaseConfigured
+      ? "Supabase DB 준비"
+      : data.supabaseConfigured
+        ? "Supabase 로그 준비"
+        : "로컬 DB 준비";
     dbStatus.className = `status-pill ${dbReady ? "ready" : "fallback"}`;
   } catch {
     aiStatus.textContent = "상태 확인 실패";

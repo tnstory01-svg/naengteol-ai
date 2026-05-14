@@ -21,13 +21,19 @@ OPENAI_MODEL=gpt-4o-mini
 SESSION_TTL_DAYS=7
 SESSION_COOKIE_SECURE=true
 LOCAL_DB_PATH=<optional server-writable path>
-SUPABASE_URL=<optional>
-SUPABASE_SERVICE_ROLE_KEY=<optional>
+SUPABASE_DB_ENABLED=true
+SUPABASE_URL=<optional Supabase project URL>
+SUPABASE_SERVICE_ROLE_KEY=<optional Supabase service role key>
+SUPABASE_SCHEMA=public
+SUPABASE_MAX_ROWS=5000
 ```
 
 If `OPENAI_API_KEY` is empty, the app uses deterministic fallback recommendations.
-If Supabase variables are empty, server-side auth, pantry, and recommendation
-history still use the local JSON DB at `LOCAL_DB_PATH` or `./data/app.db.json`.
+If Supabase URL and service role key are set, server-side auth, pantry, sessions,
+recommendation history, and savings logs use Supabase as the primary database.
+Run `supabase/schema.sql` in the Supabase SQL editor before enabling it.
+If Supabase variables are empty, the app uses the local JSON DB at
+`LOCAL_DB_PATH` or `./data/app.db.json`.
 Do not expose `SUPABASE_SERVICE_ROLE_KEY` or local DB files to the browser.
 
 ## Render
