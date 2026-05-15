@@ -40,21 +40,22 @@
           <strong id="basketCount">0개</strong>
         </div>
         <div id="basketList" class="data-list"></div>
+        <div class="button-row compact-row">
+          <button type="button" id="addBasketNoteButton" class="primary-button">메모장에 추가</button>
+          <button type="button" id="clearBasketButton" class="secondary-button">전체 해제</button>
+        </div>
         <form id="customShoppingForm" class="custom-shopping-form">
           <label>
             추가로 찾을 물품
             <input id="customShoppingInput" type="text" maxlength="80" placeholder="예: 전자레인지용 용기" />
           </label>
-          <button type="submit" class="primary-button">메모장에 추가</button>
+          <button type="submit" class="secondary-button">검색 메모 추가</button>
         </form>
-        <div class="button-row compact-row">
-          <button type="button" id="clearBasketButton" class="secondary-button">전체 해제</button>
-        </div>
         <div id="shoppingMessage" class="inline-message" role="status"></div>
         <p class="muted-copy">링크는 각 쇼핑몰의 검색 결과로 이동합니다. 가격과 배송 조건은 구매 전에 직접 확인하세요.</p>
       </aside>
     </main>
 
-    <script src="/tools.js?v=checklist-toggle-2" type="module"></script>
+    <script src="/tools.js?v=basket-note-1" type="module"></script>
   </body>
 </html>

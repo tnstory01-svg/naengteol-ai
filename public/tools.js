@@ -274,6 +274,7 @@ function initShopping() {
   const categories = document.querySelector("#shoppingCategories");
   const basketList = document.querySelector("#basketList");
   const basketCount = document.querySelector("#basketCount");
+  const addBasketNoteButton = document.querySelector("#addBasketNoteButton");
   const clearButton = document.querySelector("#clearBasketButton");
   const customForm = document.querySelector("#customShoppingForm");
   const customInput = document.querySelector("#customShoppingInput");
@@ -325,6 +326,17 @@ function initShopping() {
 
     addShoppingNote(item);
     setInlineMessage(message, `${item.name} 항목을 메모장에 추가했습니다.`, false);
+  });
+
+  addBasketNoteButton.addEventListener("click", () => {
+    const items = getSelectedShoppingItems();
+    if (!items.length) {
+      setInlineMessage(message, "메모장에 추가할 필수품을 먼저 체크해주세요.", true);
+      return;
+    }
+
+    addBasketShoppingNote(items);
+    setInlineMessage(message, `체크한 필수품 ${items.length}개를 메모장에 추가했습니다.`, false);
   });
 
   clearButton.addEventListener("click", () => {
@@ -443,8 +455,9 @@ function initShopping() {
   }
 
   function renderBasket() {
-    const items = allShoppingItems().filter((item) => selected.has(item.id));
+    const items = getSelectedShoppingItems();
     basketCount.textContent = `${items.length}개`;
+    addBasketNoteButton.disabled = items.length === 0;
     clearButton.disabled = items.length === 0;
     basketList.innerHTML = "";
 
@@ -469,6 +482,10 @@ function initShopping() {
   function saveBasket() {
     localStorage.setItem("fridge_ingredients_basket", JSON.stringify([...selected]));
   }
+
+  function getSelectedShoppingItems() {
+    return allShoppingItems().filter((item) => selected.has(item.id));
+  }
 }
 
 function allShoppingItems() {
@@ -492,6 +509,16 @@ function addShoppingNote(item) {
       `메모: ${item.note}`,
       "",
       ...createShoppingLinks(item.query).map((link) => `${link.name}: ${link.url}`)
+    ].join("\n")
+  });
+}
+
+function addBasketShoppingNote(items) {
+  addNote({
+    title: "자취 장바구니",
+    body: [
+      "사야할 품목:",
+      ...items.map((item, index) => `${index + 1}. ${item.name}`)
     ].join("\n")
   });
 }
@@ -527,7 +554,7 @@ function createNoteRecord(input) {
   return {
     id: input.id || createId("note"),
     title: normalizeClientText(input.title, 80) || "제목 없는 메모",
-    body: normalizeClientText(input.body, 4000),
+    body: normalizeClientBody(input.body, 4000),
     pinned: Boolean(input.pinned),
     createdAt: input.createdAt || now,
     updatedAt: now
@@ -849,6 +876,16 @@ function normalizeClientText(value, maxLength) {
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .trim()
     .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+}
+
+function normalizeClientBody(value, maxLength) {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim()
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .slice(0, maxLength);
 }
 
