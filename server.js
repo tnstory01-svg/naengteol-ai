@@ -168,9 +168,13 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/health") {
       await db.init();
+      const groqConfigured = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_MODEL);
       sendJson(response, 200, {
         ok: true,
-        openaiConfigured: Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL),
+        aiConfigured: groqConfigured,
+        aiProvider: groqConfigured ? "groq" : "fallback",
+        groqConfigured,
+        openaiConfigured: false,
         supabaseConfigured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
         supabaseDatabaseConfigured: db.provider === "supabase",
         localDbConfigured: db.provider === "local",
@@ -657,8 +661,17 @@ async function handleRecommend(request, response) {
   const anonymousId = auth ? `user-${auth.user.id}` : normalizeAnonymousId(payload.anonymousId);
   const ingredients = normalizeIngredients(payload.ingredients, payload.ingredientsText);
   const preferences = normalizePreferences(payload.preferences);
+  const pantryItems = auth
+    ? await db.get((data) =>
+        data.pantryItems
+          .filter((item) => item.userId === auth.user.id)
+          .sort(comparePantryItems)
+      )
+    : [];
+  const ingredientCheck = buildIngredientCheck({ inputIngredients: ingredients, pantryItems });
+  const recommendationIngredients = ingredientCheck.recommendationIngredients;
 
-  if (ingredients.length === 0) {
+  if (recommendationIngredients.length === 0) {
     throw new HttpError(400, "재료를 한 가지 이상 입력해 주세요.");
   }
 
@@ -667,24 +680,32 @@ async function handleRecommend(request, response) {
   let warning = null;
 
   try {
-    recommendation = await createAiRecommendation({ ingredients, preferences, anonymousId });
+    recommendation = await createAiRecommendation({
+      ingredients: recommendationIngredients,
+      preferences,
+      anonymousId,
+      ingredientCheck
+    });
     if (recommendation) {
-      source = "openai";
+      source = "groq";
     }
   } catch (error) {
     warning = error.message;
-    console.warn("OpenAI recommendation failed. Using fallback.", error.message);
+    console.warn("Groq recommendation failed. Using fallback.", error.message);
   }
 
   if (!recommendation) {
-    recommendation = createFallbackRecommendation(ingredients, preferences);
+    recommendation = createFallbackRecommendation(recommendationIngredients, preferences);
   }
 
-  const normalized = normalizeRecommendation(recommendation, ingredients);
+  const normalized = {
+    ...normalizeRecommendation(recommendation, recommendationIngredients),
+    ingredientCheck
+  };
   const localLogging = await logRecommendationLocally({
     auth,
     anonymousId,
-    inputIngredients: ingredients,
+    inputIngredients: recommendationIngredients,
     preferences,
     recommendation: normalized,
     source
@@ -694,7 +715,7 @@ async function handleRecommend(request, response) {
     : await logRecommendationToSupabase({
         userId: auth?.user.id || null,
         anonymousId,
-        inputIngredients: ingredients,
+        inputIngredients: recommendationIngredients,
         preferences,
         recommendation: normalized,
         source
@@ -705,6 +726,7 @@ async function handleRecommend(request, response) {
     meta: {
       source,
       warning,
+      ingredientCheck,
       logging: {
         stored: Boolean(supabaseLogging.stored || localLogging.stored),
         supabase: supabaseLogging,
@@ -714,9 +736,76 @@ async function handleRecommend(request, response) {
   });
 }
 
-async function createAiRecommendation({ ingredients, preferences, anonymousId }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL;
+function buildIngredientCheck({ inputIngredients, pantryItems }) {
+  const submittedIngredients = uniqueValues(inputIngredients || []).slice(0, 15);
+  const databaseIngredients = (Array.isArray(pantryItems) ? pantryItems : [])
+    .map((item) => ({
+      name: normalizeShortText(item.name, 80),
+      quantity: normalizeShortText(item.quantity, 40),
+      expiresAt: item.expiresAt || ""
+    }))
+    .filter((item) => item.name)
+    .slice(0, 50);
+  const pantryByKey = new Map();
+
+  for (const item of databaseIngredients) {
+    const key = ingredientKey(item.name);
+    if (key && !pantryByKey.has(key)) {
+      pantryByKey.set(key, item);
+    }
+  }
+
+  const submittedKeys = new Set();
+  const verifiedMatches = [];
+  const unverifiedInputIngredients = [];
+
+  for (const ingredient of submittedIngredients) {
+    const key = ingredientKey(ingredient);
+    if (key) {
+      submittedKeys.add(key);
+    }
+
+    const match = pantryByKey.get(key);
+    if (match) {
+      verifiedMatches.push({
+        input: ingredient,
+        name: match.name,
+        quantity: match.quantity,
+        expiresAt: match.expiresAt
+      });
+    } else {
+      unverifiedInputIngredients.push(ingredient);
+    }
+  }
+
+  const databaseOnlyIngredients = databaseIngredients.filter((item) => !submittedKeys.has(ingredientKey(item.name)));
+  const verifiedIngredients = uniqueValues(verifiedMatches.map((item) => item.name));
+  const recommendationIngredients = uniqueValues([
+    ...verifiedIngredients,
+    ...unverifiedInputIngredients,
+    ...databaseOnlyIngredients.map((item) => item.name)
+  ]).slice(0, 20);
+  const summary = databaseIngredients.length
+    ? `DB 확인 ${verifiedIngredients.length}개, 입력만 ${unverifiedInputIngredients.length}개, DB 추가 ${databaseOnlyIngredients.length}개`
+    : `입력 재료 ${submittedIngredients.length}개 기준`;
+
+  return {
+    databaseChecked: databaseIngredients.length > 0,
+    submittedIngredients,
+    databaseIngredients: databaseIngredients.slice(0, 20),
+    verifiedIngredients,
+    verifiedMatches,
+    unverifiedInputIngredients,
+    databaseOnlyIngredients: databaseOnlyIngredients.slice(0, 20),
+    recommendationIngredients,
+    summary
+  };
+}
+
+async function createAiRecommendation({ ingredients, preferences, anonymousId, ingredientCheck }) {
+  const apiKey = process.env.GROQ_API_KEY;
+  const model = process.env.GROQ_MODEL;
+  const baseUrl = trimTrailingSlash(process.env.GROQ_API_BASE_URL || "https://api.groq.com/openai/v1");
 
   if (!apiKey || !model) {
     return null;
@@ -729,18 +818,50 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId })
         role: "system",
         content: [
           "You are 냉장고 재료, a Korean home-cooking assistant.",
-          "Return only JSON that matches the provided schema.",
+          "Return only a valid JSON object. Do not include reasoning, markdown, code fences, or <think> tags.",
           "Recommend realistic meals from owned ingredients.",
           "Keep missing ingredients optional and cheap.",
-          "Estimate savings in KRW compared with delivery food."
+          "Estimate savings in KRW compared with delivery food.",
+          "/no_think"
         ].join(" ")
       },
       {
         role: "user",
         content: JSON.stringify({
           ingredients,
+          submittedIngredients: ingredientCheck.submittedIngredients,
+          databaseIngredients: ingredientCheck.databaseIngredients,
+          verifiedIngredients: ingredientCheck.verifiedIngredients,
+          unverifiedInputIngredients: ingredientCheck.unverifiedInputIngredients,
+          databaseOnlyIngredients: ingredientCheck.databaseOnlyIngredients,
           preferences,
           requiredLanguage: "ko-KR",
+          outputShape: {
+            recipes: [
+              {
+                name: "string",
+                reason: "string",
+                ownedIngredients: ["string"],
+                missingIngredients: ["string"],
+                cookTimeMinutes: "number",
+                difficulty: "easy | medium | hard",
+                steps: ["string"],
+                estimatedDeliveryCost: "number",
+                estimatedHomeCookingCost: "number",
+                estimatedSavings: "number"
+              }
+            ],
+            priorityIngredients: ["string"],
+            summary: "string"
+          },
+          rules: [
+            "Return exactly 3 recipes.",
+            "Use only JSON. No prose outside the JSON object.",
+            "Use camelCase property names exactly as shown.",
+            "Prioritize verifiedIngredients and databaseIngredients when possible.",
+            "Treat unverifiedInputIngredients as usable but less reliable than database-verified ingredients.",
+            "Reflect the delivery-vs-home-cooking cost difference in every recipe."
+          ],
           savingsRule: {
             deliveryCostKrw: DEFAULT_DELIVERY_COST,
             defaultHomeCookingCostKrw: DEFAULT_HOME_COOKING_COST
@@ -748,19 +869,12 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId })
         })
       }
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "recipe_recommendation",
-        strict: true,
-        schema: RECOMMENDATION_SCHEMA
-      }
-    },
-    max_completion_tokens: 1400,
-    safety_identifier: anonymousId
+    temperature: 0.2,
+    max_tokens: clampInt(process.env.GROQ_MAX_TOKENS, 512, 4096, 2200),
+    user: anonymousId
   };
 
-  const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+  const groqResponse = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -769,19 +883,89 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId })
     body: JSON.stringify(body)
   });
 
-  const data = await openAiResponse.json().catch(() => ({}));
+  const data = await groqResponse.json().catch(() => ({}));
 
-  if (!openAiResponse.ok) {
-    const message = data?.error?.message || `OpenAI request failed with ${openAiResponse.status}`;
+  if (!groqResponse.ok) {
+    const message = data?.error?.message || `Groq request failed with ${groqResponse.status}`;
     throw new Error(message);
   }
 
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
-    throw new Error("OpenAI returned an empty recommendation.");
+    throw new Error("Groq returned an empty recommendation.");
   }
 
-  return JSON.parse(content);
+  return parseAiJsonContent(content);
+}
+
+function parseAiJsonContent(content) {
+  const raw = String(content || "").trim();
+  const cleaned = stripAiReasoning(raw);
+  const candidates = [raw, cleaned, extractJsonObject(cleaned), extractJsonObject(raw)].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next representation.
+    }
+  }
+
+  throw new Error("Groq returned a non-JSON recommendation.");
+}
+
+function stripAiReasoning(value) {
+  return String(value || "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function extractJsonObject(value) {
+  const text = String(value || "");
+  const start = text.indexOf("{");
+  if (start === -1) {
+    return "";
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
+      }
+    }
+  }
+
+  return "";
 }
 
 async function logRecommendationLocally({
@@ -1109,6 +1293,21 @@ function normalizeRecommendation(recommendation, ingredients) {
   const recipes = Array.isArray(source.recipes) ? source.recipes : [];
   const normalizedRecipes = recipes.slice(0, 3).map((recipe, index) => {
     const fallbackRecipe = fallback.recipes[index] || fallback.recipes[0];
+    const estimatedDeliveryCost = clampInt(recipe.estimatedDeliveryCost, 8000, 30_000, DEFAULT_DELIVERY_COST);
+    const rawSavings = clampInt(
+      recipe.estimatedSavings,
+      0,
+      estimatedDeliveryCost,
+      fallbackRecipe.estimatedSavings
+    );
+    const estimatedHomeCookingCost = clampInt(
+      recipe.estimatedHomeCookingCost,
+      0,
+      estimatedDeliveryCost,
+      Math.max(0, estimatedDeliveryCost - rawSavings)
+    );
+    const savingsDifference = Math.max(0, estimatedDeliveryCost - estimatedHomeCookingCost);
+
     return {
       name: asString(recipe.name, fallbackRecipe.name),
       reason: asString(recipe.reason, fallbackRecipe.reason),
@@ -1117,12 +1316,21 @@ function normalizeRecommendation(recommendation, ingredients) {
       cookTimeMinutes: clampInt(recipe.cookTimeMinutes, 5, 60, fallbackRecipe.cookTimeMinutes),
       difficulty: ["easy", "medium", "hard"].includes(recipe.difficulty) ? recipe.difficulty : "easy",
       steps: asStringArray(recipe.steps, fallbackRecipe.steps).slice(0, 6),
-      estimatedSavings: clampInt(recipe.estimatedSavings, 1000, 15000, fallbackRecipe.estimatedSavings)
+      estimatedDeliveryCost,
+      estimatedHomeCookingCost,
+      estimatedSavings: savingsDifference,
+      savingsDifference
     };
   });
 
   while (normalizedRecipes.length < 3) {
-    normalizedRecipes.push(fallback.recipes[normalizedRecipes.length]);
+    const fallbackRecipe = fallback.recipes[normalizedRecipes.length];
+    normalizedRecipes.push({
+      ...fallbackRecipe,
+      estimatedDeliveryCost: DEFAULT_DELIVERY_COST,
+      estimatedHomeCookingCost: DEFAULT_HOME_COOKING_COST,
+      savingsDifference: fallbackRecipe.estimatedSavings
+    });
   }
 
   return {
@@ -1823,6 +2031,12 @@ function normalizeIngredients(ingredients, ingredientsText) {
         .map((item) => item.trim());
 
   return [...new Set(rawItems.map((item) => normalizeShortText(item, 60)).filter(Boolean))].slice(0, 15);
+}
+
+function ingredientKey(value) {
+  return normalizeShortText(value, 80)
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[\s._,/\\|()[\]{}'"`~!@#$%^&*+=:;?-]+/g, "");
 }
 
 function normalizePreferences(preferences = {}) {

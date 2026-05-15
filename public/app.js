@@ -471,8 +471,9 @@ async function hydrateHealth() {
     const response = await fetch("/health", { credentials: "same-origin" });
     const data = await response.json();
 
-    aiStatus.textContent = data.openaiConfigured ? "OpenAI 연결 준비" : "Fallback 데모 모드";
-    aiStatus.className = `status-pill ${data.openaiConfigured ? "ready" : "fallback"}`;
+    const aiReady = Boolean(data.groqConfigured || data.aiConfigured);
+    aiStatus.textContent = aiReady ? "Groq 연결 준비" : "Fallback 데모 모드";
+    aiStatus.className = `status-pill ${aiReady ? "ready" : "fallback"}`;
 
     const dbReady = data.localDbConfigured || data.supabaseConfigured;
     dbStatus.textContent = data.supabaseDatabaseConfigured
@@ -1128,7 +1129,13 @@ function toFullCategoryRecipe(item, recipe, index) {
 function renderRecommendation(data) {
   const source = data.meta?.source;
   const sourceLabel =
-    source === "openai" ? "OpenAI 추천" : source === "curated" ? "분류 기반 추천" : "데모 fallback 추천";
+    source === "groq"
+      ? "Groq 추천"
+      : source === "openai"
+        ? "OpenAI 추천"
+        : source === "curated"
+          ? "분류 기반 추천"
+          : "데모 fallback 추천";
   const loggingLabel =
     source === "curated"
       ? "AI 추천 전 미저장"

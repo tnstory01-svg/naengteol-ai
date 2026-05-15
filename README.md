@@ -72,7 +72,7 @@ Optional environment setup:
 cp .env.example .env
 ```
 
-Fill `OPENAI_API_KEY` and `OPENAI_MODEL` to use AI recommendations. Leave them
+Fill `GROQ_API_KEY` and `GROQ_MODEL` to use AI recommendations. Leave them
 empty to use the deterministic demo fallback.
 
 Authentication and pantry data are stored server-side in `./data/app.db.json`
@@ -86,7 +86,7 @@ and browser sessions use an HttpOnly cookie plus CSRF tokens.
   manage secure account sessions.
 - `GET /api/pantry` and `POST /api/pantry` manage saved ingredients for logged-in users.
 - `GET /api/recommendations` returns the logged-in user's saved recommendation history.
-- OpenAI keys are read only by `server.js`.
+- Groq keys are read only by `server.js`.
 - Supabase can be used as the primary server-side database through the REST API.
 - Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_DB_ENABLED=true`
   after running `supabase/schema.sql`.
