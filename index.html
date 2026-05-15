@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>냉장고 재료</title>
+    <link rel="stylesheet" href="styles.css?v=pages-1" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Secure MVP</p>
+        <h1>냉장고 재료</h1>
+        <p class="subtitle">로그인, 재료 DB, 추천 기록을 서버 세션 기반으로 관리합니다.</p>
+      </div>
+      <div class="status-strip" aria-label="service status">
+        <span id="authStatus" class="status-pill">로그인 확인 중</span>
+        <span id="aiStatus" class="status-pill">AI 확인 중</span>
+        <span id="dbStatus" class="status-pill">DB 확인 중</span>
+      </div>
+      <nav class="app-nav" aria-label="main navigation">
+        <a class="nav-link active" href="index.html">추천</a>
+        <a class="nav-link" href="chatbot.html">문의 챗봇</a>
+        <a class="nav-link" href="notes.html">메모장</a>
+        <a class="nav-link" href="shopping.html">자취 장바구니</a>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="panel auth-panel" aria-labelledby="accountTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Account</p>
+          <h2 id="accountTitle">보안 로그인</h2>
+        </div>
+
+        <div id="authEntry">
+          <div class="segmented-control" role="tablist" aria-label="authentication mode">
+            <button type="button" class="segment active" data-auth-tab="login">로그인</button>
+            <button type="button" class="segment" data-auth-tab="register">회원가입</button>
+          </div>
+
+          <form id="loginForm" class="auth-form">
+            <label>
+              이메일
+              <input name="email" type="email" autocomplete="email" required />
+            </label>
+            <label>
+              비밀번호
+              <input name="password" type="password" autocomplete="current-password" required />
+            </label>
+            <button type="submit" class="primary-button">로그인</button>
+          </form>
+
+          <form id="registerForm" class="auth-form hidden">
+            <label>
+              이름
+              <input name="displayName" type="text" autocomplete="name" maxlength="80" />
+            </label>
+            <label>
+              이메일
+              <input name="email" type="email" autocomplete="email" required />
+            </label>
+            <label>
+              비밀번호
+              <input
+                name="password"
+                type="password"
+                autocomplete="new-password"
+                minlength="10"
+                maxlength="128"
+                required
+              />
+            </label>
+            <p class="field-help">10자 이상, 영문자와 숫자를 포함해야 합니다.</p>
+            <button type="submit" class="primary-button">계정 만들기</button>
+          </form>
+        </div>
+
+        <div id="sessionPanel" class="session-panel hidden">
+          <span class="metric-label">현재 계정</span>
+          <strong id="accountEmail">-</strong>
+          <p id="accountName" class="muted-copy"></p>
+          <button type="button" id="logoutButton" class="secondary-button">로그아웃</button>
+        </div>
+
+        <div id="authMessage" class="inline-message" role="status"></div>
+      </section>
+
+      <section id="adminPanel" class="panel admin-panel hidden" aria-labelledby="adminTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Admin</p>
+          <h2 id="adminTitle">User control</h2>
+        </div>
+
+        <div id="adminSummary" class="admin-summary"></div>
+
+        <div class="admin-split">
+          <div>
+            <div class="admin-subheading">
+              <span class="metric-label">Accounts</span>
+              <button type="button" id="adminRefreshButton" class="secondary-button compact-button">Refresh</button>
+            </div>
+            <div id="adminUserList" class="data-list">
+              <span class="empty-state">Admin access is required.</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="admin-subheading">
+              <span class="metric-label">Blocked IPs</span>
+            </div>
+            <div id="adminIpBlockList" class="data-list">
+              <span class="empty-state">No blocked IPs.</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="adminMessage" class="inline-message" role="status"></div>
+      </section>
+
+      <section class="panel input-panel" aria-labelledby="inputTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Recommend</p>
+          <h2 id="inputTitle">보유 재료</h2>
+        </div>
+
+        <form id="recommendForm" class="ingredient-form">
+          <label for="ingredientsText">냉장고에 있는 재료</label>
+          <textarea
+            id="ingredientsText"
+            name="ingredientsText"
+            rows="7"
+            placeholder="예: 계란, 김치, 두부, 밥, 대파"
+            required
+          ></textarea>
+
+          <div class="form-grid">
+            <label>
+              목표
+              <select id="goal" name="goal">
+                <option value="save_money">식비 절약</option>
+                <option value="quick">빠른 조리</option>
+                <option value="healthy">가벼운 식사</option>
+              </select>
+            </label>
+
+            <label>
+              인분
+              <input id="servings" name="servings" type="number" min="1" max="6" value="1" />
+            </label>
+
+            <label>
+              최대 조리 시간
+              <select id="maxCookTimeMinutes" name="maxCookTimeMinutes">
+                <option value="10">10분</option>
+                <option value="20" selected>20분</option>
+                <option value="30">30분</option>
+                <option value="45">45분</option>
+              </select>
+            </label>
+          </div>
+
+          <label for="priorityNotes">먼저 처리할 재료</label>
+          <input
+            id="priorityNotes"
+            name="priorityNotes"
+            type="text"
+            maxlength="160"
+            placeholder="예: 두부 유통기한 임박, 대파가 시들기 시작함"
+          />
+
+          <div class="button-row">
+            <button type="submit" class="primary-button">메뉴 추천받기</button>
+            <button type="button" id="demoButton" class="secondary-button">데모 재료 넣기</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel report-panel" aria-labelledby="reportTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Savings</p>
+          <h2 id="reportTitle">절약 리포트</h2>
+        </div>
+
+        <div class="metric-block">
+          <span class="metric-label">오늘 예상 절약</span>
+          <strong id="bestSavings">0원</strong>
+        </div>
+
+        <div class="savings-bar" aria-hidden="true">
+          <span id="savingsBarFill"></span>
+        </div>
+
+        <dl class="cost-grid">
+          <div>
+            <dt>배달 기준</dt>
+            <dd id="deliveryCost">12,000원</dd>
+          </div>
+          <div>
+            <dt>집밥 기준</dt>
+            <dd id="homeCost">3,500원</dd>
+          </div>
+        </dl>
+
+        <div class="priority-box">
+          <span class="metric-label">먼저 써야 할 재료</span>
+          <div id="priorityIngredients" class="chip-row">
+            <span class="empty-state">추천 후 표시됩니다.</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel category-panel" aria-labelledby="categoryTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Top Down</p>
+          <h2 id="categoryTitle">자취생 재료 탐색</h2>
+        </div>
+
+        <div class="category-shell">
+          <div class="category-column">
+            <span class="column-label">대분류</span>
+            <div id="majorCategories" class="category-button-list"></div>
+          </div>
+
+          <div class="category-column">
+            <span class="column-label">중분류</span>
+            <div id="mediumCategories" class="category-button-list"></div>
+          </div>
+
+          <div class="category-column item-column">
+            <span class="column-label">소분류</span>
+            <div id="smallCategories" class="category-chip-grid"></div>
+          </div>
+
+          <div class="category-column recipe-preview-column">
+            <span class="column-label">추천요리</span>
+            <div id="selectedIngredientSummary" class="selected-summary"></div>
+            <div id="categoryRecipes" class="mini-recipe-grid"></div>
+            <div class="button-row compact-row">
+              <button type="button" id="applyCategoryButton" class="secondary-button">재료 입력에 반영</button>
+              <button type="button" id="requestCategoryButton" class="primary-button">AI 추천으로 이어가기</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel pantry-panel" aria-labelledby="pantryTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Database</p>
+          <h2 id="pantryTitle">재료 DB</h2>
+        </div>
+
+        <form id="pantryForm" class="pantry-form">
+          <label>
+            재료명
+            <input id="pantryName" name="name" type="text" maxlength="80" required />
+          </label>
+          <label>
+            수량
+            <input id="pantryQuantity" name="quantity" type="text" maxlength="40" placeholder="예: 1팩" />
+          </label>
+          <label>
+            소비 기한
+            <input id="pantryExpiresAt" name="expiresAt" type="date" />
+          </label>
+          <button type="submit" class="primary-button">저장</button>
+        </form>
+
+        <div class="button-row compact-row">
+          <button type="button" id="usePantryButton" class="secondary-button">재료 입력에 반영</button>
+        </div>
+
+        <div id="pantryList" class="data-list">
+          <span class="empty-state">로그인 후 재료를 저장할 수 있습니다.</span>
+        </div>
+      </section>
+
+      <section class="panel history-panel" aria-labelledby="historyTitle">
+        <div class="section-heading">
+          <p class="eyebrow">History</p>
+          <h2 id="historyTitle">추천 기록</h2>
+        </div>
+
+        <div class="metric-block compact-metric">
+          <span class="metric-label">누적 예상 절약</span>
+          <strong id="totalSavings">0원</strong>
+        </div>
+
+        <div id="historyList" class="data-list">
+          <span class="empty-state">로그인 후 추천 기록이 저장됩니다.</span>
+        </div>
+      </section>
+
+      <section class="results-section" aria-labelledby="resultsTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Results</p>
+          <h2 id="resultsTitle">추천 메뉴</h2>
+        </div>
+
+        <div id="message" class="message">재료를 입력하면 만들 수 있는 메뉴 3가지를 보여줍니다.</div>
+        <div id="recipes" class="recipe-grid"></div>
+      </section>
+    </main>
+
+    <script src="app.js?v=pages-1" type="module"></script>
+    <script src="tools.js?v=pages-1" type="module"></script>
+  </body>
+</html>

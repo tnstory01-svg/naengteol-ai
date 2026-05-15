@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>메모장 | 냉장고 재료</title>
+    <link rel="stylesheet" href="styles.css?v=pages-1" />
+  </head>
+  <body data-tool="notes">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Memo</p>
+        <h1>메모장</h1>
+        <p class="subtitle">장보기 계획, 냉장고 정리, 자취 생활 할 일을 빠르게 기록합니다.</p>
+      </div>
+      <nav class="app-nav" aria-label="main navigation">
+        <a class="nav-link" href="index.html">추천</a>
+        <a class="nav-link" href="chatbot.html">문의 챗봇</a>
+        <a class="nav-link active" href="notes.html">메모장</a>
+        <a class="nav-link" href="shopping.html">자취 장바구니</a>
+      </nav>
+    </header>
+
+    <main class="tool-layout">
+      <section class="panel tool-panel" aria-labelledby="memoTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Editor</p>
+          <h2 id="memoTitle">메모 작성</h2>
+        </div>
+
+        <form id="noteForm" class="note-form">
+          <input id="noteId" type="hidden" />
+          <label>
+            제목
+            <input id="noteTitle" type="text" maxlength="80" placeholder="예: 이번 주 장보기" required />
+          </label>
+          <label>
+            내용
+            <textarea id="noteBody" rows="12" maxlength="4000" placeholder="필요한 재료, 해야 할 일, 가격 비교 메모를 적어두세요."></textarea>
+          </label>
+          <div class="button-row">
+            <button type="submit" class="primary-button">저장</button>
+            <button type="button" id="newNoteButton" class="secondary-button">새 메모</button>
+            <button type="button" id="deleteNoteButton" class="text-button" disabled>삭제</button>
+          </div>
+        </form>
+        <div id="noteMessage" class="inline-message" role="status"></div>
+      </section>
+
+      <aside class="panel tool-side-panel" aria-labelledby="memoListTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Saved</p>
+          <h2 id="memoListTitle">저장된 메모</h2>
+        </div>
+        <label>
+          검색
+          <input id="noteSearch" type="search" placeholder="제목이나 내용 검색" />
+        </label>
+        <div id="noteList" class="data-list note-list"></div>
+      </aside>
+    </main>
+
+    <script src="tools.js?v=pages-1" type="module"></script>
+  </body>
+</html>
