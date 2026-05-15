@@ -103,5 +103,9 @@ Deployment-ready files are included:
 - `render.yaml`
 - `railway.toml`
 - `Procfile`
+- `public/` for static GitHub Pages deployment
 
-See `docs/deployment.md` for deployment settings and environment variables.
+GitHub Pages runs the static `public/` app at
+`https://tnstory01-svg.github.io/naengteol-ai/`. Server features still require
+the Node backend. See `docs/deployment.md` for deployment settings and
+environment variables.

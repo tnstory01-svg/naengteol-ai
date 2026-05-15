@@ -36,6 +36,7 @@ const selectedIngredientSummary = document.querySelector("#selectedIngredientSum
 const categoryRecipes = document.querySelector("#categoryRecipes");
 const applyCategoryButton = document.querySelector("#applyCategoryButton");
 const requestCategoryButton = document.querySelector("#requestCategoryButton");
+const API_BASE_URL = String(window.NAENGTEOL_API_BASE_URL || "").replace(/\/+$/, "");
 
 const CATEGORY_DATA = [
   {
@@ -468,7 +469,7 @@ function bindEvents() {
 
 async function hydrateHealth() {
   try {
-    const response = await fetch("/health", { credentials: "same-origin" });
+    const response = await fetch(apiUrl("/health"), { credentials: "same-origin" });
     const data = await response.json();
 
     const aiReady = Boolean(data.groqConfigured || data.aiConfigured);
@@ -483,8 +484,10 @@ async function hydrateHealth() {
         : "로컬 DB 준비";
     dbStatus.className = `status-pill ${dbReady ? "ready" : "fallback"}`;
   } catch {
-    aiStatus.textContent = "상태 확인 실패";
-    dbStatus.textContent = "상태 확인 실패";
+    aiStatus.textContent = "정적 데모 모드";
+    aiStatus.className = "status-pill fallback";
+    dbStatus.textContent = "브라우저 저장소";
+    dbStatus.className = "status-pill fallback";
   }
 }
 
@@ -671,6 +674,18 @@ async function requestRecommendation() {
 
   const formData = new FormData(form);
   const ingredientsText = String(formData.get("ingredientsText") || "");
+  const preferences = {
+    goal: formData.get("goal"),
+    servings: Number(formData.get("servings")),
+    maxCookTimeMinutes: Number(formData.get("maxCookTimeMinutes")),
+    priorityNotes: formData.get("priorityNotes")
+  };
+
+  if (!ingredientsText.trim()) {
+    showMessage("재료를 한 가지 이상 입력해 주세요.", true);
+    setLoading(false);
+    return;
+  }
 
   try {
     const data = await apiFetch("/api/recommend", {
@@ -678,12 +693,7 @@ async function requestRecommendation() {
       body: JSON.stringify({
         anonymousId,
         ingredientsText,
-        preferences: {
-          goal: formData.get("goal"),
-          servings: Number(formData.get("servings")),
-          maxCookTimeMinutes: Number(formData.get("maxCookTimeMinutes")),
-          priorityNotes: formData.get("priorityNotes")
-        }
+        preferences
       })
     });
 
@@ -692,7 +702,7 @@ async function requestRecommendation() {
       await refreshHistory();
     }
   } catch (error) {
-    showMessage(formatError(error), true);
+    renderRecommendation(buildLocalRecommendation(ingredientsText, preferences));
   } finally {
     setLoading(false);
   }
@@ -710,7 +720,7 @@ async function apiFetch(url, options = {}) {
     headers.set("X-CSRF-Token", state.csrfToken);
   }
 
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     ...options,
     method,
     headers,
@@ -725,6 +735,17 @@ async function apiFetch(url, options = {}) {
   }
 
   return data;
+}
+
+function apiUrl(path) {
+  const value = String(path || "");
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${value.startsWith("/") ? value : `/${value}`}`;
+  }
+  return value.startsWith("/") ? value.slice(1) : value;
 }
 
 function applyAuthState(data) {
@@ -1102,6 +1123,57 @@ function buildCategoryRecommendation(item) {
   };
 }
 
+function buildLocalRecommendation(ingredientsText, preferences = {}) {
+  const ingredients = parseIngredientText(ingredientsText);
+  const candidates = CATEGORY_DATA.flatMap((category) => category.children.flatMap((group) => group.items));
+  const selectedItem =
+    candidates
+      .map((item) => ({ item, score: scoreCategoryItem(item, ingredients) }))
+      .sort((a, b) => b.score - a.score)[0]?.item || candidates[0];
+  const recipes = selectedItem.recipes.map((recipe, index) => {
+    const fullRecipe = toFullCategoryRecipe(selectedItem, recipe, index);
+    return {
+      ...fullRecipe,
+      ownedIngredients: uniqueValues([...ingredients, ...fullRecipe.ownedIngredients]).slice(0, 8),
+      missingIngredients: fullRecipe.missingIngredients.filter((item) => !ingredients.includes(item)).slice(0, 4)
+    };
+  });
+
+  return {
+    recipes,
+    priorityIngredients: uniqueValues([
+      ...ingredients,
+      ...String(preferences.priorityNotes || "")
+        .split(/[,،，\n]/)
+        .map((item) => item.trim())
+    ]).slice(0, 5),
+    summary: "GitHub Pages 정적 배포 환경에서 브라우저 안의 기본 추천으로 생성했습니다.",
+    totals: {
+      bestSavings: Math.max(...recipes.map((recipe) => recipe.estimatedSavings)),
+      averageDeliveryCost: 12000,
+      estimatedHomeCookingCost: 3500
+    },
+    meta: {
+      source: "local",
+      logging: {
+        stored: false
+      }
+    }
+  };
+}
+
+function parseIngredientText(value) {
+  return uniqueValues(String(value || "").split(/[,،，\n]/)).slice(0, 15);
+}
+
+function scoreCategoryItem(item, ingredients) {
+  const haystack = [item.name, ...item.ingredients].join(" ").toLocaleLowerCase("ko-KR");
+  return ingredients.reduce((score, ingredient) => {
+    const token = ingredient.toLocaleLowerCase("ko-KR");
+    return score + (haystack.includes(token) ? 2 : token.includes(item.name.toLocaleLowerCase("ko-KR")) ? 1 : 0);
+  }, 0);
+}
+
 function toFullCategoryRecipe(item, recipe, index) {
   const ownedIngredients = uniqueValues([item.name, ...recipe.extraIngredients, ...item.ingredients]).slice(0, 8);
   const missingIngredients = recipe.extraIngredients
@@ -1135,6 +1207,8 @@ function renderRecommendation(data) {
         ? "OpenAI 추천"
         : source === "curated"
           ? "분류 기반 추천"
+          : source === "local"
+            ? "정적 데모 추천"
           : "데모 fallback 추천";
   const loggingLabel =
     source === "curated"

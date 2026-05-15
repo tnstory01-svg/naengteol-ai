@@ -57,6 +57,23 @@ SUPABASE_SERVICE_ROLE_KEY
 Use the included `railway.toml`. Railway will build from `Dockerfile`, run
 `node server.js`, and use `/health` as the health check.
 
+## GitHub Pages
+
+GitHub Pages serves the static files in `public/` from the `gh-pages` branch.
+No npm install step is required.
+
+The Pages URL is expected to be:
+
+```text
+https://tnstory01-svg.github.io/naengteol-ai/
+```
+
+Static Pages mode supports the browser-only screens such as notes, shopping
+checklist, and client-side demo recommendations. Server-only features such as
+secure login, pantry DB sync, admin controls, Groq calls, Supabase service-role
+access, recommendation history, and `/api/*` routes still require the Node
+server on Render, Railway, Docker, or another backend host.
+
 ## Docker
 
 Build:
