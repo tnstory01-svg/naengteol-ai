@@ -74,6 +74,10 @@ secure login, pantry DB sync, admin controls, Groq calls, Supabase service-role
 access, recommendation history, and `/api/*` routes still require the Node
 server on Render, Railway, Docker, or another backend host.
 
+See `docs/limited-feature-recovery-plan.md` for the step-by-step plan to unlock
+those limited features for other people's devices while keeping admin data and
+secrets private.
+
 ## Docker
 
 Build:
