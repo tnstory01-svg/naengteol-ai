@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>전국 놀곳추천 | 자취생의 모든것</title>
+    <link rel="stylesheet" href="styles.css?v=pages-3" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Play Finder</p>
+        <h1>전국 놀곳추천</h1>
+        <p class="subtitle">사는 지역을 고르면 가까운 랜드마크, 역사 유적지, 산책 명소를 바로 확인합니다.</p>
+      </div>
+      <nav class="app-nav" aria-label="main navigation">
+        <a class="nav-link" href="index.html">냉장고 재료 털기</a>
+        <a class="nav-link" href="login.html">로그인</a>
+        <a class="nav-link" href="register.html">회원가입</a>
+        <a class="nav-link" href="chatbot.html">문의 챗봇</a>
+        <a class="nav-link" href="notes.html">메모장</a>
+        <a class="nav-link" href="shopping.html">자취 장바구니</a>
+        <a class="nav-link active" href="places.html">놀곳추천</a>
+        <a class="nav-link" href="tips.html">꿀팁방출기</a>
+      </nav>
+    </header>
+
+    <main class="places-layout">
+      <section class="panel places-picker-panel" aria-labelledby="placePickerTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Top Down</p>
+          <h2 id="placePickerTitle">사는 지역 선택</h2>
+        </div>
+
+        <label>
+          전국 검색
+          <input id="placeSearch" type="search" autocomplete="off" placeholder="예: 경복궁, 바다, 야경, 서원, 시장" />
+        </label>
+
+        <div class="place-selector-shell">
+          <div class="place-selector-column">
+            <span class="column-label">행정 구분</span>
+            <div id="placeTypeList" class="category-button-list"></div>
+          </div>
+          <div class="place-selector-column">
+            <span class="column-label">시·도</span>
+            <div id="placeRegionList" class="category-button-list"></div>
+          </div>
+          <div class="place-selector-column">
+            <span class="column-label">생활권·시군구</span>
+            <div id="placeAreaList" class="category-button-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="places-results-section" aria-labelledby="placeResultsTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Results</p>
+          <h2 id="placeResultsTitle">가볼 만한 곳</h2>
+        </div>
+
+        <div id="placeSummary" class="selected-summary"></div>
+
+        <div class="place-filter-row" aria-label="place filters">
+          <button type="button" class="secondary-button place-filter active" data-place-filter="all">전체</button>
+          <button type="button" class="secondary-button place-filter" data-place-filter="역사">역사</button>
+          <button type="button" class="secondary-button place-filter" data-place-filter="랜드마크">랜드마크</button>
+          <button type="button" class="secondary-button place-filter" data-place-filter="자연">자연</button>
+          <button type="button" class="secondary-button place-filter" data-place-filter="거리·시장">거리·시장</button>
+          <button type="button" class="secondary-button place-filter" data-place-filter="문화">문화</button>
+        </div>
+
+        <div class="metric-block compact-metric">
+          <span class="metric-label">표시 중</span>
+          <strong id="placeCount">0곳</strong>
+        </div>
+
+        <div id="placeEmpty" class="message hidden">조건에 맞는 장소가 없습니다.</div>
+        <div id="placeCardGrid" class="place-card-grid"></div>
+      </section>
+    </main>
+
+    <script src="places.js?v=pages-3" type="module"></script>
+  </body>
+</html>

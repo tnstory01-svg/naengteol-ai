@@ -195,7 +195,8 @@ h3 {
 }
 
 .auth-page-layout,
-.tips-layout {
+.tips-layout,
+.places-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.54fr);
   gap: 20px;
@@ -207,12 +208,18 @@ h3 {
   grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1.4fr);
 }
 
+.places-layout {
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+}
+
 .tool-panel,
 .tool-side-panel,
 .auth-page-panel,
 .auth-side-panel,
 .tips-control-panel,
-.tips-results-section {
+.tips-results-section,
+.places-picker-panel,
+.places-results-section {
   min-width: 0;
 }
 
@@ -1003,6 +1010,87 @@ button:focus-visible {
   text-decoration: none;
 }
 
+.place-selector-shell {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.place-selector-column {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.place-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.place-filter {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 0.84rem;
+}
+
+.place-filter.active {
+  border-color: rgba(33, 110, 78, 0.4);
+  background: rgba(33, 110, 78, 0.1);
+  color: var(--green-strong);
+}
+
+.place-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.place-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.place-card-topline,
+.place-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.place-card h3 {
+  margin-bottom: 0;
+}
+
+.place-card p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.place-meta-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(65, 105, 168, 0.2);
+  border-radius: 999px;
+  background: rgba(65, 105, 168, 0.08);
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
 .admin-summary {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1373,10 +1461,12 @@ dd {
   .tool-layout,
   .auth-page-layout,
   .tips-layout,
+  .places-layout,
   .shopping-layout,
   .shopping-item-grid,
   .chat-input-row,
-  .tips-grid {
+  .tips-grid,
+  .place-card-grid {
     grid-template-columns: 1fr;
   }
 
