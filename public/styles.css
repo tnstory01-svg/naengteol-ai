@@ -947,6 +947,10 @@ button:focus-visible {
   gap: 14px;
 }
 
+.wide-tip-card {
+  grid-column: 1 / -1;
+}
+
 .tip-card {
   display: grid;
   gap: 10px;
@@ -1251,6 +1255,46 @@ dd {
   gap: 10px;
 }
 
+.style-control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.7fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.style-result {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.style-result-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.style-result-topline div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.style-result-topline strong {
+  overflow-wrap: anywhere;
+}
+
+.style-result-topline p,
+.style-tip-list {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -1453,7 +1497,8 @@ dd {
   .recipe-grid,
   .form-grid,
   .pantry-form,
-  .category-shell {
+  .category-shell,
+  .style-control-grid {
     grid-column: 1 / -1;
     grid-template-columns: 1fr;
   }
@@ -1526,6 +1571,10 @@ dd {
   .shopping-category-toggle,
   .shopping-group-toggle {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .style-result-topline {
     flex-direction: column;
   }
 
