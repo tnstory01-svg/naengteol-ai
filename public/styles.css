@@ -194,8 +194,25 @@ h3 {
   padding: 0 clamp(20px, 5vw, 72px) 48px;
 }
 
+.auth-page-layout,
+.tips-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.54fr);
+  gap: 20px;
+  align-items: start;
+  padding: 0 clamp(20px, 5vw, 72px) 48px;
+}
+
+.tips-layout {
+  grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1.4fr);
+}
+
 .tool-panel,
-.tool-side-panel {
+.tool-side-panel,
+.auth-page-panel,
+.auth-side-panel,
+.tips-control-panel,
+.tips-results-section {
   min-width: 0;
 }
 
@@ -338,6 +355,18 @@ button:focus-visible {
   border: 1px solid var(--line);
   background: var(--surface-strong);
   color: var(--ink);
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .text-button {
@@ -509,6 +538,11 @@ button:focus-visible {
 .session-panel {
   display: grid;
   gap: 8px;
+}
+
+.account-link-panel {
+  display: grid;
+  gap: 14px;
 }
 
 .session-panel strong {
@@ -874,6 +908,99 @@ button:focus-visible {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
+}
+
+.tips-control-panel {
+  position: sticky;
+  top: 18px;
+}
+
+.tip-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 20px;
+}
+
+.tip-filter {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 0.84rem;
+}
+
+.tip-filter.active {
+  border-color: rgba(33, 110, 78, 0.4);
+  background: rgba(33, 110, 78, 0.1);
+  color: var(--green-strong);
+}
+
+.tips-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.tip-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.tip-card h3 {
+  margin-bottom: 0;
+}
+
+.tip-card p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.tip-category {
+  width: fit-content;
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 1px solid rgba(33, 110, 78, 0.22);
+  border-radius: 999px;
+  background: rgba(33, 110, 78, 0.08);
+  color: var(--green-strong);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.tip-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.tip-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tip-link-row a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid rgba(65, 105, 168, 0.2);
+  border-radius: 999px;
+  background: rgba(65, 105, 168, 0.08);
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: none;
 }
 
 .admin-summary {
@@ -1244,10 +1371,17 @@ dd {
   }
 
   .tool-layout,
+  .auth-page-layout,
+  .tips-layout,
   .shopping-layout,
   .shopping-item-grid,
-  .chat-input-row {
+  .chat-input-row,
+  .tips-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tips-control-panel {
+    position: static;
   }
 
   .category-chip-grid {
@@ -1284,6 +1418,7 @@ dd {
   }
 
   .button-row button,
+  .button-row .link-button,
   .auth-form button,
   .pantry-form button,
   .category-chip {

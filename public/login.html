@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>로그인 | 자취생의 모든것</title>
+    <link rel="stylesheet" href="styles.css?v=pages-2" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Account</p>
+        <h1>로그인</h1>
+        <p class="subtitle">재료 DB, 냉장고 털기 기록, 누적 절약 금액을 내 계정에 연결합니다.</p>
+      </div>
+      <nav class="app-nav" aria-label="main navigation">
+        <a class="nav-link" href="index.html">냉장고 재료 털기</a>
+        <a class="nav-link active" href="login.html">로그인</a>
+        <a class="nav-link" href="register.html">회원가입</a>
+        <a class="nav-link" href="chatbot.html">문의 챗봇</a>
+        <a class="nav-link" href="notes.html">메모장</a>
+        <a class="nav-link" href="shopping.html">자취 장바구니</a>
+        <a class="nav-link" href="tips.html">꿀팁방출기</a>
+      </nav>
+    </header>
+
+    <main class="auth-page-layout">
+      <section class="panel auth-page-panel" aria-labelledby="loginTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Sign In</p>
+          <h2 id="loginTitle">계정 로그인</h2>
+        </div>
+
+        <form id="authPageForm" class="auth-form" data-auth-endpoint="/api/auth/login" data-auth-success="로그인되었습니다.">
+          <label>
+            이메일
+            <input name="email" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            비밀번호
+            <input name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <button type="submit" class="primary-button">로그인</button>
+        </form>
+
+        <div id="authPageMessage" class="inline-message" role="status"></div>
+      </section>
+
+      <aside class="panel auth-side-panel" aria-labelledby="loginSideTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Session</p>
+          <h2 id="loginSideTitle">현재 계정</h2>
+        </div>
+        <div id="authPageSession" class="session-panel hidden">
+          <span class="metric-label">로그인됨</span>
+          <strong id="authPageEmail">-</strong>
+          <p id="authPageName" class="muted-copy"></p>
+        </div>
+        <div class="button-row compact-row">
+          <a class="secondary-button link-button" href="register.html">회원가입</a>
+          <a class="primary-button link-button" href="index.html">냉장고 털기</a>
+          <button type="button" id="authPageLogout" class="text-button hidden">로그아웃</button>
+        </div>
+      </aside>
+    </main>
+
+    <script src="auth.js?v=pages-2" type="module"></script>
+  </body>
+</html>

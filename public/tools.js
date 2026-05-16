@@ -67,7 +67,11 @@ function initChatbot() {
   const input = document.querySelector("#chatInput");
   const messages = document.querySelector("#chatMessages");
 
-  appendChatMessage(messages, "bot", "로그인, 메뉴 추천, 재료 DB, 관리자 기능, 메모장, 자취 장바구니에 대해 물어보세요.");
+  appendChatMessage(
+    messages,
+    "bot",
+    "로그인, 냉장고 재료 털기, 재료 DB, 관리자 기능, 메모장, 자취 장바구니에 대해 물어보세요."
+  );
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

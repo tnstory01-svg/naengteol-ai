@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>꿀팁방출기 | 자취생의 모든것</title>
+    <link rel="stylesheet" href="styles.css?v=pages-2" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Living Guide</p>
+        <h1>꿀팁방출기</h1>
+        <p class="subtitle">자취 계약, 이사, 공과금, 생활 관리에 필요한 서류와 체크포인트를 빠르게 찾습니다.</p>
+      </div>
+      <nav class="app-nav" aria-label="main navigation">
+        <a class="nav-link" href="index.html">냉장고 재료 털기</a>
+        <a class="nav-link" href="login.html">로그인</a>
+        <a class="nav-link" href="register.html">회원가입</a>
+        <a class="nav-link" href="chatbot.html">문의 챗봇</a>
+        <a class="nav-link" href="notes.html">메모장</a>
+        <a class="nav-link" href="shopping.html">자취 장바구니</a>
+        <a class="nav-link active" href="tips.html">꿀팁방출기</a>
+      </nav>
+    </header>
+
+    <main class="tips-layout">
+      <section class="panel tips-control-panel" aria-labelledby="tipsSearchTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Search</p>
+          <h2 id="tipsSearchTitle">서류와 꿀팁 찾기</h2>
+        </div>
+
+        <label>
+          검색어
+          <input id="tipSearch" type="search" autocomplete="off" placeholder="예: 전입신고, 보증금, 관리비, 곰팡이" />
+        </label>
+
+        <div class="tip-filter-row" aria-label="tip filters">
+          <button type="button" class="secondary-button tip-filter active" data-tip-filter="all">전체</button>
+          <button type="button" class="secondary-button tip-filter" data-tip-filter="documents">서류</button>
+          <button type="button" class="secondary-button tip-filter" data-tip-filter="contract">계약</button>
+          <button type="button" class="secondary-button tip-filter" data-tip-filter="moving">이사</button>
+          <button type="button" class="secondary-button tip-filter" data-tip-filter="money">비용</button>
+          <button type="button" class="secondary-button tip-filter" data-tip-filter="home">생활</button>
+        </div>
+
+        <div class="metric-block compact-metric">
+          <span class="metric-label">검색 결과</span>
+          <strong id="tipCount">0개</strong>
+        </div>
+        <p class="muted-copy">서류와 제도는 지역과 시점에 따라 달라질 수 있으니 최종 신청 전 공식 사이트에서 확인하세요.</p>
+      </section>
+
+      <section class="tips-results-section" aria-labelledby="tipsResultTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Checklist</p>
+          <h2 id="tipsResultTitle">자취생 필수 정보</h2>
+        </div>
+
+        <div id="tipsEmpty" class="message hidden">검색 조건에 맞는 꿀팁이 없습니다.</div>
+
+        <div class="tips-grid">
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="documents contract"
+            data-tip-keywords="전입신고 확정일자 임대차계약서 보증금 주민센터 정부24 인터넷등기소"
+          >
+            <span class="tip-category">서류 · 계약</span>
+            <h3>전입신고와 확정일자</h3>
+            <p>새 집에 들어가면 주소 이전과 임대차계약서 보호 절차를 먼저 확인합니다.</p>
+            <ul class="tip-list">
+              <li>계약서 원본 또는 사본, 신분증, 주소 정보를 한 번에 준비합니다.</li>
+              <li>전입신고, 확정일자, 임대차 신고 대상 여부를 각각 확인합니다.</li>
+              <li>보증금이 큰 계약이면 잔금 전후 일정과 증빙을 메모장에 남깁니다.</li>
+            </ul>
+            <div class="tip-link-row">
+              <a href="https://www.gov.kr/" target="_blank" rel="noreferrer">정부24</a>
+              <a href="https://www.iros.go.kr/" target="_blank" rel="noreferrer">인터넷등기소</a>
+            </div>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="contract money"
+            data-tip-keywords="계약 전 등기부등본 보증금 월세 근저당 임대인 신분증 특약"
+          >
+            <span class="tip-category">계약 · 비용</span>
+            <h3>계약 전 확인할 항목</h3>
+            <p>월세가 싸 보여도 권리관계와 관리비 조건을 같이 봐야 실제 비용이 보입니다.</p>
+            <ul class="tip-list">
+              <li>등기부등본의 소유자, 근저당, 압류 표시를 계약 당일에도 다시 확인합니다.</li>
+              <li>관리비 포함 항목, 수도·전기·가스 별도 여부를 계약서에 구체적으로 적습니다.</li>
+              <li>하자 수리, 입주 청소, 중도 해지 조건은 구두 합의로 남기지 않습니다.</li>
+            </ul>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="moving documents"
+            data-tip-keywords="이사 주소변경 우편물 전기 가스 수도 인터넷 전입"
+          >
+            <span class="tip-category">이사 · 서류</span>
+            <h3>이사 당일 체크</h3>
+            <p>짐보다 먼저 계량기, 열쇠, 하자 사진을 정리하면 나중에 분쟁을 줄일 수 있습니다.</p>
+            <ul class="tip-list">
+              <li>전기·가스·수도 계량기 숫자와 방 상태를 사진으로 남깁니다.</li>
+              <li>도어락 비밀번호, 우편함, 공동현관, 분리수거 위치를 확인합니다.</li>
+              <li>주소 변경이 필요한 은행, 통신사, 택배 기본 주소를 한 번에 바꿉니다.</li>
+            </ul>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="money home"
+            data-tip-keywords="관리비 공과금 전기요금 가스비 수도요금 난방비 자동이체"
+          >
+            <span class="tip-category">비용 · 생활</span>
+            <h3>관리비와 공과금 정리</h3>
+            <p>고정비는 첫 달에 구조를 잡아두면 과소비를 빨리 발견할 수 있습니다.</p>
+            <ul class="tip-list">
+              <li>월세, 관리비, 전기, 가스, 수도, 인터넷 납부일을 한 표로 정리합니다.</li>
+              <li>자동이체 전 첫 고지서는 직접 확인해 명의와 사용 기간을 맞춥니다.</li>
+              <li>겨울 난방비와 여름 전기요금은 이전 달 평균과 비교합니다.</li>
+            </ul>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="home moving"
+            data-tip-keywords="하자 점검 곰팡이 누수 벌레 방충망 환기 싱크대 배수구"
+          >
+            <span class="tip-category">생활 · 이사</span>
+            <h3>입주 첫날 하자 점검</h3>
+            <p>입주 직후 사진과 메시지 기록을 남기면 수리 책임을 설명하기 쉬워집니다.</p>
+            <ul class="tip-list">
+              <li>천장·창틀·싱크대 아래 누수와 곰팡이 흔적을 확인합니다.</li>
+              <li>방충망, 콘센트, 보일러, 도어락, 환풍기 작동 여부를 테스트합니다.</li>
+              <li>발견한 하자는 날짜가 보이게 사진을 찍고 임대인에게 바로 공유합니다.</li>
+            </ul>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="home money"
+            data-tip-keywords="냉장고 식비 절약 장보기 소분 냉동 유통기한"
+          >
+            <span class="tip-category">생활 · 비용</span>
+            <h3>식비 줄이는 냉장고 루틴</h3>
+            <p>재료를 사는 것보다 끝까지 쓰는 루틴이 식비 절약에 더 크게 작동합니다.</p>
+            <ul class="tip-list">
+              <li>장 본 날 바로 1회분씩 소분하고 냉동 가능 재료를 먼저 나눕니다.</li>
+              <li>소비기한이 가까운 재료는 앱의 냉장고 재료 털기에 먼저 입력합니다.</li>
+              <li>양파, 계란, 두부, 김치처럼 조합이 넓은 기본 재료를 유지합니다.</li>
+            </ul>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="home"
+            data-tip-keywords="분리수거 음식물쓰레기 배출일 종량제 재활용 동네 규칙"
+          >
+            <span class="tip-category">생활</span>
+            <h3>쓰레기 배출 규칙</h3>
+            <p>원룸은 배출 장소가 좁아 규칙을 놓치면 바로 민원이 생길 수 있습니다.</p>
+            <ul class="tip-list">
+              <li>건물별 분리수거 장소, 음식물쓰레기 방식, 배출 요일을 사진으로 저장합니다.</li>
+              <li>택배 상자 테이프와 송장은 제거하고 부피를 줄여 버립니다.</li>
+              <li>이사 직후에는 종량제 봉투를 작은 용량부터 준비합니다.</li>
+            </ul>
+          </article>
+
+          <article
+            class="tip-card"
+            data-tip-card
+            data-tip-category="money documents"
+            data-tip-keywords="증빙 영수증 이체내역 월세 세액공제 보증금 반환"
+          >
+            <span class="tip-category">비용 · 서류</span>
+            <h3>돈 관련 증빙 보관</h3>
+            <p>월세와 보증금은 나중에 확인할 일이 생기므로 기록을 분산해서 보관합니다.</p>
+            <ul class="tip-list">
+              <li>계약금, 잔금, 월세, 관리비 이체 내역은 용도 표시가 보이게 저장합니다.</li>
+              <li>계약서, 특약, 하자 사진은 클라우드와 로컬에 함께 보관합니다.</li>
+              <li>세금·공제 가능 여부는 본인 조건에 맞춰 공식 안내에서 다시 확인합니다.</li>
+            </ul>
+            <div class="tip-link-row">
+              <a href="https://www.hometax.go.kr/" target="_blank" rel="noreferrer">홈택스</a>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="tips.js?v=pages-2" type="module"></script>
+  </body>
+</html>

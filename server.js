@@ -135,7 +135,11 @@ class HttpError extends Error {
   }
 }
 
-const server = http.createServer(async (request, response) => {
+const appReady = initializeApp();
+
+export async function handleRequest(request, response) {
+  await appReady;
+
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
@@ -272,15 +276,26 @@ const server = http.createServer(async (request, response) => {
   } catch (error) {
     handleError(response, error);
   }
-});
+}
 
-await db.init();
-await ensureAdminAccount();
+const server = http.createServer(handleRequest);
 
-server.listen(PORT, HOST, () => {
-  const displayHost = HOST === "0.0.0.0" ? "localhost" : HOST;
-  console.log(`냉장고 재료 running at http://${displayHost}:${PORT}`);
-});
+if (isMainModule()) {
+  await appReady;
+  server.listen(PORT, HOST, () => {
+    const displayHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+    console.log(`자취생의 모든것 running at http://${displayHost}:${PORT}`);
+  });
+}
+
+async function initializeApp() {
+  await db.init();
+  await ensureAdminAccount();
+}
+
+function isMainModule() {
+  return Boolean(process.argv[1] && path.resolve(process.argv[1]) === __filename);
+}
 
 async function handleRegister(request, response) {
   const payload = asObject(await readJson(request, 16_000));
@@ -817,7 +832,7 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId, i
       {
         role: "system",
         content: [
-          "You are 냉장고 재료, a Korean home-cooking assistant.",
+          "You are 자취생의 모든것, a Korean living-alone home-cooking assistant.",
           "Return only a valid JSON object. Do not include reasoning, markdown, code fences, or <think> tags.",
           "Recommend realistic meals from owned ingredients.",
           "Keep missing ingredients optional and cheap.",
@@ -1568,21 +1583,21 @@ async function createSupportReply(message) {
       id: "login",
       keywords: ["로그인", "회원", "가입", "비밀번호", "계정"],
       answer:
-        "로그인/회원가입은 메인 화면의 Account 영역에서 할 수 있습니다. 비밀번호는 10자 이상이고 영문과 숫자를 모두 포함해야 합니다.",
-      suggestions: ["비밀번호 조건", "회원가입 방법", "로그아웃"]
+        "로그인은 login.html, 회원가입은 register.html에서 각각 할 수 있습니다. 비밀번호는 10자 이상이고 영문과 숫자를 모두 포함해야 합니다.",
+      suggestions: ["로그인 페이지", "회원가입 방법", "로그아웃"]
     },
     {
-      id: "recommend",
-      keywords: ["추천", "메뉴", "요리", "재료", "냉장고", "레시피"],
+      id: "fridge-clear",
+      keywords: ["추천", "메뉴", "요리", "재료", "냉장고", "레시피", "털기"],
       answer:
-        "보유 재료를 쉼표나 줄바꿈으로 입력하면 메뉴 3가지를 추천합니다. 로그인하면 추천 기록과 예상 절약 금액이 저장됩니다.",
-      suggestions: ["재료 입력", "추천 기록", "식비 절약"]
+        "냉장고 재료 털기 화면에서 보유 재료를 쉼표나 줄바꿈으로 입력하면 만들 수 있는 메뉴 3가지를 보여줍니다. 로그인하면 털기 기록과 예상 절약 금액이 저장됩니다.",
+      suggestions: ["재료 입력", "털기 기록", "식비 절약"]
     },
     {
       id: "pantry",
       keywords: ["저장", "재료 db", "재료db", "유통기한", "소비기한", "삭제"],
       answer:
-        "로그인 후 재료 DB에 재료명, 수량, 소비기한을 저장할 수 있습니다. 저장된 재료는 추천 입력란으로 바로 옮길 수 있습니다.",
+        "로그인 후 재료 DB에 재료명, 수량, 소비기한을 저장할 수 있습니다. 저장된 재료는 냉장고 재료 털기 입력란으로 바로 옮길 수 있습니다.",
       suggestions: ["재료 저장", "소비기한", "재료 삭제"]
     },
     {
@@ -1625,10 +1640,17 @@ async function createSupportReply(message) {
       suggestions: ["자취 필수품", "주방 기본템", "청소 용품"]
     },
     {
+      id: "tips",
+      keywords: ["꿀팁", "서류", "전입신고", "확정일자", "계약", "관리비", "이사"],
+      answer:
+        "꿀팁방출기 화면에서 전입신고, 확정일자, 계약 전 점검, 관리비, 이사 당일 체크 같은 자취 정보를 검색하고 분야별로 볼 수 있습니다.",
+      suggestions: ["전입신고", "계약 전 확인", "관리비 정리"]
+    },
+    {
       id: "privacy",
       keywords: ["개인정보", "보안", "세션", "데이터", "삭제"],
       answer:
-        "계정, 세션, 추천 기록은 서버 쪽 로컬 DB에 저장됩니다. IP 차단은 원문 IP가 아니라 해시 지문으로 관리합니다.",
+        "계정, 세션, 냉장고 털기 기록은 서버 쪽 로컬 DB에 저장됩니다. IP 차단은 원문 IP가 아니라 해시 지문으로 관리합니다.",
       suggestions: ["데이터 저장 위치", "IP 차단 방식", "로그아웃"]
     }
   ];
@@ -1656,8 +1678,8 @@ async function createSupportReply(message) {
   return {
     intent: "fallback",
     answer:
-      "지금은 기본 문의만 자동 응답할 수 있습니다. 로그인, 메뉴 추천, 재료 DB, 관리자, 메모장, 자취 장바구니 중 하나를 물어보면 더 정확히 답할게요.",
-    suggestions: ["메뉴 추천은 어떻게 해?", "자취 필수품 알려줘", "관리자는 무엇을 할 수 있어?"],
+      "지금은 기본 문의만 자동 응답할 수 있습니다. 로그인, 냉장고 재료 털기, 재료 DB, 관리자, 메모장, 자취 장바구니, 꿀팁방출기 중 하나를 물어보면 더 정확히 답할게요.",
+    suggestions: ["냉장고 재료 털기는 어떻게 해?", "자취 필수품 알려줘", "관리자는 무엇을 할 수 있어?"],
     links: createSearchLinks(message)
   };
 }

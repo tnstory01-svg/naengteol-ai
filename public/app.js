@@ -330,6 +330,108 @@ const CATEGORY_DATA = [
         ]
       }
     ]
+  },
+  {
+    id: "fresh",
+    label: "신선채소/과일",
+    description: "샐러드, 볶음, 아침 대용",
+    children: [
+      {
+        id: "leafy-vegetable",
+        label: "잎채소",
+        description: "양배추, 상추, 깻잎",
+        items: [
+          foodItem("cabbage", "양배추", ["양배추", "계란", "즉석밥", "참치캔", "고추장"], "쌈, 볶음, 덮밥에 모두 활용", [
+            dish("양배추계란덮밥", 12, "채 썬 양배추와 계란을 볶아 밥 위에 올립니다.", ["계란", "즉석밥"]),
+            dish("참치양배추쌈", 10, "참치와 양배추를 같이 먹으면 포만감이 좋습니다.", ["참치캔"]),
+            dish("양배추고추장볶음", 9, "시들기 전 빠르게 볶아 반찬으로 씁니다.", ["고추장"])
+          ]),
+          foodItem("lettuce", "상추", ["상추", "즉석밥", "참치캔", "계란", "쌈장"], "밥과 단백질을 싸서 빠른 한 끼", [
+            dish("참치상추비빔밥", 8, "상추를 찢어 참치와 비비면 바로 한 그릇입니다.", ["참치캔", "즉석밥"]),
+            dish("계란상추쌈밥", 10, "계란 프라이와 밥을 상추에 싸 먹습니다.", ["계란"]),
+            dish("상추겉절이덮밥", 8, "간단히 무쳐 밥 위에 올립니다.", ["즉석밥"])
+          ]),
+          foodItem("perilla-leaf", "깻잎", ["깻잎", "즉석밥", "참치캔", "간장", "김가루"], "향이 강해 밥 메뉴 풍미 보강", [
+            dish("깻잎참치덮밥", 8, "참치와 깻잎을 올려 느끼함을 줄입니다.", ["참치캔"]),
+            dish("깻잎간장비빔밥", 7, "간장과 참기름만 더해도 향이 살아납니다.", ["간장"]),
+            dish("깻잎주먹밥", 9, "잘게 썰어 김가루와 함께 뭉칩니다.", ["김가루"])
+          ])
+        ]
+      },
+      {
+        id: "root-vegetable",
+        label: "뿌리/단단한 채소",
+        description: "감자, 당근, 양파",
+        items: [
+          foodItem("potato", "감자", ["감자", "계란", "즉석밥", "카레", "치즈"], "포만감이 좋아 식비 절약에 유리", [
+            dish("감자계란볶음", 12, "얇게 썬 감자와 계란을 볶아 반찬으로 씁니다.", ["계란"]),
+            dish("감자카레밥", 15, "레토르트 카레에 감자를 더해 양을 늘립니다.", ["카레", "즉석밥"]),
+            dish("치즈감자구이", 14, "전자레인지로 익힌 뒤 치즈를 올립니다.", ["치즈"])
+          ]),
+          foodItem("carrot", "당근", ["당근", "계란", "즉석밥", "라면", "카레"], "잘게 썰어 색과 단맛을 보강", [
+            dish("당근계란볶음밥", 10, "잘게 썬 당근으로 볶음밥 식감을 살립니다.", ["계란", "즉석밥"]),
+            dish("당근라면", 8, "라면에 채 썬 당근을 넣어 단맛을 더합니다.", ["봉지라면"]),
+            dish("당근카레", 12, "카레에 넣으면 재료가 부족해도 든든합니다.", ["카레"])
+          ]),
+          foodItem("onion", "양파", ["양파", "즉석밥", "계란", "돈가스", "간장"], "대부분의 덮밥과 볶음에 기본으로 사용", [
+            dish("양파계란덮밥", 10, "간장 양념에 양파와 계란을 익힙니다.", ["계란", "즉석밥"]),
+            dish("돈가스양파덮밥", 15, "냉동돈가스에 양파를 더해 한 그릇으로 만듭니다.", ["냉동돈가스"]),
+            dish("양파간장볶음", 8, "양파만 남았을 때 밥반찬으로 빠르게 처리합니다.", ["간장"])
+          ])
+        ]
+      }
+    ]
+  },
+  {
+    id: "quick-protein",
+    label: "간편 단백질",
+    description: "계란, 두부, 유제품",
+    children: [
+      {
+        id: "egg-tofu",
+        label: "계란/두부",
+        description: "냉장고 기본 단백질",
+        items: [
+          foodItem("egg", "계란", ["계란", "즉석밥", "김치", "간장", "대파"], "가장 빠른 단백질 보강 재료", [
+            dish("간장계란밥", 5, "밥 위에 계란과 간장을 올리는 기본 절약 메뉴입니다.", ["즉석밥", "간장"]),
+            dish("김치계란볶음밥", 10, "김치와 계란만으로도 한 끼가 됩니다.", ["김치"]),
+            dish("대파계란국", 8, "대파를 넣어 간단한 국으로 만듭니다.", ["대파"])
+          ]),
+          foodItem("tofu", "두부", ["두부", "김치", "계란", "간장", "즉석밥"], "소비기한 임박 재료를 처리하기 좋음", [
+            dish("두부김치", 12, "두부를 데우고 김치를 볶아 곁들입니다.", ["김치"]),
+            dish("두부계란부침", 10, "계란물을 입혀 부치면 반찬이 됩니다.", ["계란"]),
+            dish("두부간장덮밥", 9, "으깬 두부를 간장에 볶아 밥 위에 올립니다.", ["즉석밥", "간장"])
+          ]),
+          foodItem("soft-tofu", "순두부", ["순두부", "계란", "라면", "김치", "대파"], "국물 메뉴를 빠르게 든든하게 만듦", [
+            dish("순두부라면", 8, "라면에 순두부를 넣어 한 끼로 만듭니다.", ["봉지라면"]),
+            dish("김치순두부찌개", 12, "김치와 순두부만 있어도 국물이 완성됩니다.", ["김치"]),
+            dish("계란순두부국", 10, "계란을 풀어 부드러운 국으로 먹습니다.", ["계란"])
+          ])
+        ]
+      },
+      {
+        id: "dairy",
+        label: "유제품/치즈",
+        description: "치즈, 우유, 요거트",
+        items: [
+          foodItem("cheese", "치즈", ["치즈", "즉석밥", "김치", "라면", "또띠아"], "남은 메뉴를 더 든든하게 바꿈", [
+            dish("치즈김치밥", 8, "김치볶음밥 위에 치즈를 녹입니다.", ["김치", "즉석밥"]),
+            dish("치즈라면", 6, "라면에 치즈 한 장으로 고소함을 더합니다.", ["봉지라면"]),
+            dish("또띠아치즈롤", 8, "또띠아에 치즈를 넣고 접어 굽습니다.", ["또띠아"])
+          ]),
+          foodItem("milk", "우유", ["우유", "파스타면", "치즈", "계란", "식빵"], "소스나 아침 대용으로 활용", [
+            dish("우유크림파스타", 15, "우유와 치즈로 간단한 크림 소스를 만듭니다.", ["파스타면", "치즈"]),
+            dish("프렌치토스트", 10, "식빵과 계란, 우유로 아침을 해결합니다.", ["식빵", "계란"]),
+            dish("우유계란찜", 9, "계란찜에 우유를 조금 넣어 부드럽게 만듭니다.", ["계란"])
+          ]),
+          foodItem("yogurt", "요거트", ["요거트", "바나나", "시리얼", "견과류", "식빵"], "아침과 간식으로 빠르게 처리", [
+            dish("요거트볼", 5, "시리얼과 견과류를 올려 바로 먹습니다.", ["시리얼", "견과류"]),
+            dish("바나나요거트", 5, "바나나를 썰어 포만감을 더합니다.", ["바나나"]),
+            dish("요거트토스트", 7, "식빵에 요거트를 바르고 과일을 올립니다.", ["식빵"])
+          ])
+        ]
+      }
+    ]
   }
 ];
 
@@ -356,15 +458,19 @@ function bindEvents() {
     button.addEventListener("click", () => switchAuthTab(button.dataset.authTab));
   });
 
-  loginForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await submitAuthForm(loginForm, "/api/auth/login", "로그인되었습니다.");
-  });
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await submitAuthForm(loginForm, "/api/auth/login", "로그인되었습니다.");
+    });
+  }
 
-  registerForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await submitAuthForm(registerForm, "/api/auth/register", "계정이 생성되었습니다.");
-  });
+  if (registerForm) {
+    registerForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await submitAuthForm(registerForm, "/api/auth/register", "계정이 생성되었습니다.");
+    });
+  }
 
   logoutButton.addEventListener("click", async () => {
     try {
@@ -956,12 +1062,12 @@ function renderHistory() {
   historyList.innerHTML = "";
 
   if (!state.authenticated) {
-    historyList.innerHTML = '<span class="empty-state">로그인 후 추천 기록이 저장됩니다.</span>';
+    historyList.innerHTML = '<span class="empty-state">로그인 후 냉장고 털기 기록이 저장됩니다.</span>';
     return;
   }
 
   if (!state.history.length) {
-    historyList.innerHTML = '<span class="empty-state">저장된 추천 기록이 없습니다.</span>';
+    historyList.innerHTML = '<span class="empty-state">저장된 냉장고 털기 기록이 없습니다.</span>';
     return;
   }
 
@@ -970,7 +1076,7 @@ function renderHistory() {
     row.className = "data-row history-row";
     row.innerHTML = `
       <div>
-        <strong>${escapeHtml(entry.recipeNames.join(", ") || "추천 메뉴")}</strong>
+        <strong>${escapeHtml(entry.recipeNames.join(", ") || "털어낸 메뉴")}</strong>
         <span>${escapeHtml(formatDateTime(entry.createdAt))} · ${formatKrw(entry.bestSavings)} 절약</span>
       </div>
     `;
@@ -1147,7 +1253,7 @@ function buildLocalRecommendation(ingredientsText, preferences = {}) {
         .split(/[,،，\n]/)
         .map((item) => item.trim())
     ]).slice(0, 5),
-    summary: "GitHub Pages 정적 배포 환경에서 브라우저 안의 기본 추천으로 생성했습니다.",
+    summary: "GitHub Pages 정적 배포 환경에서 브라우저 안의 기본 메뉴로 생성했습니다.",
     totals: {
       bestSavings: Math.max(...recipes.map((recipe) => recipe.estimatedSavings)),
       averageDeliveryCost: 12000,
@@ -1202,20 +1308,20 @@ function renderRecommendation(data) {
   const source = data.meta?.source;
   const sourceLabel =
     source === "groq"
-      ? "Groq 추천"
+      ? "Groq 털기"
       : source === "openai"
-        ? "OpenAI 추천"
+        ? "OpenAI 털기"
         : source === "curated"
-          ? "분류 기반 추천"
+          ? "분류 기반 털기"
           : source === "local"
-            ? "정적 데모 추천"
-          : "데모 fallback 추천";
+            ? "정적 데모 털기"
+          : "데모 fallback 털기";
   const loggingLabel =
     source === "curated"
-      ? "AI 추천 전 미저장"
+      ? "AI 털기 전 미저장"
       : data.meta?.logging?.stored
-        ? "추천 기록 저장됨"
-        : "로그인 시 추천 기록 저장";
+        ? "털기 기록 저장됨"
+        : "로그인 시 털기 기록 저장";
   showMessage(`${sourceLabel} · ${loggingLabel} · ${data.summary}`, false);
 
   const totals = data.totals || {};
@@ -1232,7 +1338,7 @@ function renderPriorityIngredients(items) {
   priorityIngredients.innerHTML = "";
 
   if (!items.length) {
-    priorityIngredients.innerHTML = '<span class="empty-state">추천 후 표시됩니다.</span>';
+    priorityIngredients.innerHTML = '<span class="empty-state">털기 후 표시됩니다.</span>';
     return;
   }
 
@@ -1290,6 +1396,9 @@ function renderRecipes(recipes) {
 }
 
 function switchAuthTab(tab) {
+  if (!loginForm || !registerForm) {
+    return;
+  }
   const isRegister = tab === "register";
   loginForm.classList.toggle("hidden", isRegister);
   registerForm.classList.toggle("hidden", !isRegister);
@@ -1299,6 +1408,9 @@ function switchAuthTab(tab) {
 }
 
 function setAuthMessage(text, isError) {
+  if (!authMessage) {
+    return;
+  }
   authMessage.textContent = text;
   authMessage.classList.toggle("error", Boolean(isError));
 }
@@ -1316,7 +1428,7 @@ function showMessage(text, isError) {
 function setLoading(isLoading) {
   const submitButton = form.querySelector('button[type="submit"]');
   submitButton.disabled = isLoading;
-  submitButton.textContent = isLoading ? "추천 생성 중" : "메뉴 추천받기";
+  submitButton.textContent = isLoading ? "냉장고 털이 중" : "냉장고 털기 시작";
 }
 
 function setFormLoading(targetForm, isLoading) {

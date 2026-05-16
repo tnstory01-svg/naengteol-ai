@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>회원가입 | 자취생의 모든것</title>
+    <link rel="stylesheet" href="styles.css?v=pages-2" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Account</p>
+        <h1>회원가입</h1>
+        <p class="subtitle">자취 생활 기록을 저장할 계정을 새로 만듭니다.</p>
+      </div>
+      <nav class="app-nav" aria-label="main navigation">
+        <a class="nav-link" href="index.html">냉장고 재료 털기</a>
+        <a class="nav-link" href="login.html">로그인</a>
+        <a class="nav-link active" href="register.html">회원가입</a>
+        <a class="nav-link" href="chatbot.html">문의 챗봇</a>
+        <a class="nav-link" href="notes.html">메모장</a>
+        <a class="nav-link" href="shopping.html">자취 장바구니</a>
+        <a class="nav-link" href="tips.html">꿀팁방출기</a>
+      </nav>
+    </header>
+
+    <main class="auth-page-layout">
+      <section class="panel auth-page-panel" aria-labelledby="registerTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Create Account</p>
+          <h2 id="registerTitle">계정 만들기</h2>
+        </div>
+
+        <form
+          id="authPageForm"
+          class="auth-form"
+          data-auth-endpoint="/api/auth/register"
+          data-auth-success="계정이 생성되었습니다."
+        >
+          <label>
+            이름
+            <input name="displayName" type="text" autocomplete="name" maxlength="80" />
+          </label>
+          <label>
+            이메일
+            <input name="email" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            비밀번호
+            <input
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              minlength="10"
+              maxlength="128"
+              required
+            />
+          </label>
+          <p class="field-help">10자 이상, 영문자와 숫자를 포함해야 합니다.</p>
+          <button type="submit" class="primary-button">계정 만들기</button>
+        </form>
+
+        <div id="authPageMessage" class="inline-message" role="status"></div>
+      </section>
+
+      <aside class="panel auth-side-panel" aria-labelledby="registerSideTitle">
+        <div class="section-heading">
+          <p class="eyebrow">Next</p>
+          <h2 id="registerSideTitle">가입 후 바로 사용</h2>
+        </div>
+        <div id="authPageSession" class="session-panel hidden">
+          <span class="metric-label">로그인됨</span>
+          <strong id="authPageEmail">-</strong>
+          <p id="authPageName" class="muted-copy"></p>
+        </div>
+        <div class="button-row compact-row">
+          <a class="secondary-button link-button" href="login.html">로그인</a>
+          <a class="primary-button link-button" href="index.html">냉장고 털기</a>
+          <button type="button" id="authPageLogout" class="text-button hidden">로그아웃</button>
+        </div>
+      </aside>
+    </main>
+
+    <script src="auth.js?v=pages-2" type="module"></script>
+  </body>
+</html>
