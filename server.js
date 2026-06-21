@@ -51,6 +51,8 @@ const db = SUPABASE_DB_ENABLED && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     })
   : new LocalDatabase(LOCAL_DB_PATH);
 const rateLimitBuckets = new Map();
+const ADMIN_OVERVIEW_CACHE_TTL_MS = clampInt(process.env.ADMIN_OVERVIEW_CACHE_TTL_SECONDS, 10, 30, 10) * 1000;
+const adminOverviewCache = new Map();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -425,8 +427,19 @@ async function handleSupportChat(request, response) {
 
 async function handleAdminOverview(request, response) {
   const auth = await requireAdmin(request);
+  const cacheKey = auth.user.id;
+  const cachedOverview = adminOverviewCache.get(cacheKey);
+  if (cachedOverview && cachedOverview.expiresAt > Date.now()) {
+    sendJson(response, 200, cachedOverview.value, { "X-Admin-Overview-Cache": "hit" });
+    return;
+  }
+
   const overview = await db.get((data) => buildAdminOverview(data, auth.user.id));
-  sendJson(response, 200, overview);
+  adminOverviewCache.set(cacheKey, {
+    value: overview,
+    expiresAt: Date.now() + ADMIN_OVERVIEW_CACHE_TTL_MS
+  });
+  sendJson(response, 200, overview, { "X-Admin-Overview-Cache": "miss" });
 }
 
 async function handleAdminUserUpdate(request, response, userId) {
@@ -483,6 +496,7 @@ async function handleAdminUserUpdate(request, response, userId) {
     return buildAdminUser(record, data);
   });
 
+  clearAdminOverviewCache();
   sendJson(response, 200, { user });
 }
 
@@ -545,6 +559,7 @@ async function handleAdminUserIpBlock(request, response, userId) {
     };
   });
 
+  clearAdminOverviewCache();
   sendJson(response, 200, result);
 }
 
@@ -561,7 +576,12 @@ async function handleAdminIpUnblock(request, response, blockId) {
     return buildPublicIpBlock(removed, data);
   });
 
+  clearAdminOverviewCache();
   sendJson(response, 200, { ok: true, block });
+}
+
+function clearAdminOverviewCache() {
+  adminOverviewCache.clear();
 }
 
 async function handlePantryList(request, response) {

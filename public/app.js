@@ -37,6 +37,8 @@ const categoryRecipes = document.querySelector("#categoryRecipes");
 const applyCategoryButton = document.querySelector("#applyCategoryButton");
 const requestCategoryButton = document.querySelector("#requestCategoryButton");
 const API_BASE_URL = String(window.NAENGTEOL_API_BASE_URL || "").replace(/\/+$/, "");
+const DEDUPED_GET_PATHS = new Set(["/health", "/api/admin/overview"]);
+const pendingGetRequests = new Map();
 
 const CATEGORY_DATA = [
   {
@@ -815,7 +817,7 @@ async function requestRecommendation() {
 }
 
 async function apiFetch(url, options = {}) {
-  const method = options.method || "GET";
+  const method = String(options.method || "GET").toUpperCase();
   const headers = new Headers(options.headers || {});
 
   if (options.body && !headers.has("Content-Type")) {
@@ -826,12 +828,41 @@ async function apiFetch(url, options = {}) {
     headers.set("X-CSRF-Token", state.csrfToken);
   }
 
-  const response = await fetch(apiUrl(url), {
+  const requestUrl = apiUrl(url);
+  const requestOptions = {
     ...options,
     method,
     headers,
     credentials: "same-origin"
-  });
+  };
+
+  if (method === "GET" && !options.body && canDedupeGet(url)) {
+    const pending = pendingGetRequests.get(requestUrl);
+    if (pending) {
+      return pending;
+    }
+
+    const pendingRequest = requestJson(requestUrl, requestOptions).finally(() => {
+      pendingGetRequests.delete(requestUrl);
+    });
+    pendingGetRequests.set(requestUrl, pendingRequest);
+    return pendingRequest;
+  }
+
+  return requestJson(requestUrl, requestOptions);
+}
+
+function canDedupeGet(path) {
+  const value = String(path || "");
+  if (/^https?:\/\//i.test(value)) {
+    return false;
+  }
+  const normalized = value.startsWith("/") ? value : `/${value}`;
+  return DEDUPED_GET_PATHS.has(normalized);
+}
+
+async function requestJson(requestUrl, requestOptions) {
+  const response = await fetch(requestUrl, requestOptions);
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
