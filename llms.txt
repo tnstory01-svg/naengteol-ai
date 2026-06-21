@@ -1,0 +1,49 @@
+# 냉장고 재료 LLM entrypoint
+
+Project: 냉장고 재료, also presented in the UI as 자취생의 모든것.
+Purpose: help people living alone turn ingredients they already have into meal
+recommendations, missing-ingredient lists, priority-use hints, and visible food
+cost savings.
+
+Read these first:
+
+1. docs/llm-wiki/index.md
+2. docs/llm-wiki/overview.md
+3. docs/llm-wiki/features.md
+4. docs/llm-wiki/api.md
+5. docs/llm-wiki/deployment.md
+6. docs/llm-wiki/data-model.md
+7. docs/llm-wiki/llm-usage.md
+
+Repository anchors:
+
+- README.md: human-facing project overview and local run notes.
+- server.js: Node HTTP server, API routing, AI fallback, auth, and static file serving.
+- public/: browser UI for recommendations, auth, notes, shopping, places, tips, and chatbot.
+- lib/local-db.js: local JSON database adapter.
+- lib/supabase-db.js: Supabase REST database adapter.
+- supabase/schema.sql: Supabase table schema.
+- docs/deployment.md: deployment notes.
+- docs/limited-feature-recovery-plan.md: GitHub Pages limitations and backend recovery plan.
+
+Security rules:
+
+- Never put .env values in public files, docs examples, screenshots, or frontend code.
+- Never expose GROQ_API_KEY, SUPABASE_SERVICE_ROLE_KEY, ADMIN_PASSWORD, or data/app.db.json.
+- Browser code must not call Groq or Supabase service-role APIs directly.
+- Server-side routes own auth, secret-backed AI calls, database writes, and admin controls.
+
+Current operating model:
+
+- The app runs locally with node server.js and no package installation.
+- If GROQ_API_KEY and GROQ_MODEL are missing, recommendations use deterministic fallback data.
+- Local persistence uses data/app.db.json, which is ignored by Git.
+- Supabase can replace local persistence when SUPABASE_DB_ENABLED=true and server-side secrets are configured.
+- GitHub Pages can host public static files only; login, pantry DB, AI, history, chatbot API, and admin features require the Node backend.
+
+Answering guidance for LLMs:
+
+- Prefer the LLM wiki for project intent, terminology, and architectural summaries.
+- Prefer source files for exact behavior, route handlers, validation, and data shapes.
+- Mention uncertainty when docs and code disagree, then treat code as the source of truth.
+- Keep answers scoped to 냉장고 재료 unless the user explicitly asks to include unrelated OneDrive documents.

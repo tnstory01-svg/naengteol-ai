@@ -45,6 +45,19 @@ Keep the first version focused on:
 ingredient input -> recipe results -> savings report
 ```
 
+## LLM Wiki
+
+This repository includes an LLM-oriented project wiki for future assistants,
+RAG experiments, and prompt-grounded maintenance work.
+
+Start with:
+
+- `llms.txt`
+- `docs/llm-wiki/index.md`
+
+The wiki summarizes the product, features, APIs, data model, deployment shape,
+and LLM usage rules without exposing secrets or local runtime data.
+
 ## Local Development
 
 This MVP uses a dependency-free Node server, so it can run without installing
