@@ -358,7 +358,9 @@ async function handleLogin(request, response) {
     throw new HttpError(401, "이메일 또는 비밀번호가 올바르지 않습니다.");
   }
 
-  const userRecord = await db.get((data) => data.users.find((item) => item.email === email));
+  const userRecord = typeof db.findUserByEmail === "function"
+    ? await db.findUserByEmail(email)
+    : await db.get((data) => data.users.find((item) => item.email === email));
   const validPassword = userRecord ? await verifyPassword(password, userRecord.passwordHash) : false;
 
   if (!validPassword) {
@@ -388,9 +390,13 @@ async function handleLogout(request, response) {
 
   if (auth) {
     assertCsrf(request, auth.session);
-    await db.mutate((data) => {
-      data.sessions = data.sessions.filter((session) => session.tokenHash !== auth.session.tokenHash);
-    });
+    if (typeof db.deleteSessionByTokenHash === "function") {
+      await db.deleteSessionByTokenHash(auth.session.tokenHash);
+    } else {
+      await db.mutate((data) => {
+        data.sessions = data.sessions.filter((session) => session.tokenHash !== auth.session.tokenHash);
+      });
+    }
   }
 
   sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie(request) });
@@ -586,11 +592,13 @@ function clearAdminOverviewCache() {
 
 async function handlePantryList(request, response) {
   const auth = await requireSession(request);
-  const items = await db.get((data) =>
-    data.pantryItems
-      .filter((item) => item.userId === auth.user.id)
-      .sort(comparePantryItems)
-  );
+  const items = typeof db.listPantryItemsByUserId === "function"
+    ? await db.listPantryItemsByUserId(auth.user.id)
+    : await db.get((data) =>
+        data.pantryItems
+          .filter((item) => item.userId === auth.user.id)
+          .sort(comparePantryItems)
+      );
 
   sendJson(response, 200, { items });
 }
@@ -601,19 +609,22 @@ async function handlePantryCreate(request, response) {
   const itemInput = normalizePantryInput(payload, { partial: false });
   const now = new Date().toISOString();
 
-  const item = await db.mutate((data) => {
-    const record = {
-      id: randomUUID(),
-      userId: auth.user.id,
-      name: itemInput.name,
-      quantity: itemInput.quantity,
-      expiresAt: itemInput.expiresAt,
-      createdAt: now,
-      updatedAt: now
-    };
-    data.pantryItems.push(record);
-    return record;
-  });
+  const record = {
+    id: randomUUID(),
+    userId: auth.user.id,
+    name: itemInput.name,
+    quantity: itemInput.quantity,
+    expiresAt: itemInput.expiresAt,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const item = typeof db.insertPantryItem === "function"
+    ? await db.insertPantryItem(record)
+    : await db.mutate((data) => {
+        data.pantryItems.push(record);
+        return record;
+      });
 
   sendJson(response, 201, { item });
 }
@@ -624,29 +635,37 @@ async function handlePantryUpdate(request, response, itemId) {
   const itemInput = normalizePantryInput(payload, { partial: true });
   const now = new Date().toISOString();
 
-  const item = await db.mutate((data) => {
-    const record = data.pantryItems.find((entry) => entry.id === itemId && entry.userId === auth.user.id);
-    if (!record) {
-      throw new HttpError(404, "재료를 찾을 수 없습니다.");
-    }
+  const item = typeof db.updatePantryItem === "function"
+    ? await db.updatePantryItem(auth.user.id, itemId, { ...itemInput, updatedAt: now })
+    : await db.mutate((data) => {
+        const record = data.pantryItems.find((entry) => entry.id === itemId && entry.userId === auth.user.id);
+        if (!record) {
+          throw new HttpError(404, "재료를 찾을 수 없습니다.");
+        }
 
-    for (const [key, value] of Object.entries(itemInput)) {
-      record[key] = value;
-    }
-    record.updatedAt = now;
-    return record;
-  });
+        for (const [key, value] of Object.entries(itemInput)) {
+          record[key] = value;
+        }
+        record.updatedAt = now;
+        return record;
+      });
+
+  if (!item) {
+    throw new HttpError(404, "재료를 찾을 수 없습니다.");
+  }
 
   sendJson(response, 200, { item });
 }
 
 async function handlePantryDelete(request, response, itemId) {
   const auth = await requireSession(request, { requireCsrf: true });
-  const deleted = await db.mutate((data) => {
-    const before = data.pantryItems.length;
-    data.pantryItems = data.pantryItems.filter((entry) => !(entry.id === itemId && entry.userId === auth.user.id));
-    return before !== data.pantryItems.length;
-  });
+  const deleted = typeof db.deletePantryItem === "function"
+    ? await db.deletePantryItem(auth.user.id, itemId)
+    : await db.mutate((data) => {
+        const before = data.pantryItems.length;
+        data.pantryItems = data.pantryItems.filter((entry) => !(entry.id === itemId && entry.userId === auth.user.id));
+        return before !== data.pantryItems.length;
+      });
 
   if (!deleted) {
     throw new HttpError(404, "재료를 찾을 수 없습니다.");
@@ -658,30 +677,32 @@ async function handlePantryDelete(request, response, itemId) {
 async function handleRecommendationHistory(request, response, url) {
   const auth = await requireSession(request);
   const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
-  const result = await db.get((data) => {
-    const logs = data.recommendationLogs
-      .filter((log) => log.userId === auth.user.id)
-      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-      .slice(0, limit)
-      .map((log) => ({
-        id: log.id,
-        createdAt: log.createdAt,
-        source: log.source,
-        inputIngredients: log.inputIngredients,
-        summary: log.recommendation?.summary || "",
-        bestSavings: log.recommendation?.totals?.bestSavings || 0,
-        recipeNames: (log.recommendation?.recipes || []).map((recipe) => recipe.name).slice(0, 3)
-      }));
+  const result = typeof db.getRecommendationHistory === "function"
+    ? await db.getRecommendationHistory(auth.user.id, limit)
+    : await db.get((data) => {
+        const logs = data.recommendationLogs
+          .filter((log) => log.userId === auth.user.id)
+          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+          .slice(0, limit)
+          .map((log) => ({
+            id: log.id,
+            createdAt: log.createdAt,
+            source: log.source,
+            inputIngredients: log.inputIngredients,
+            summary: log.recommendation?.summary || "",
+            bestSavings: log.recommendation?.totals?.bestSavings || 0,
+            recipeNames: (log.recommendation?.recipes || []).map((recipe) => recipe.name).slice(0, 3)
+          }));
 
-    const totalSavings = data.savingsLogs
-      .filter((log) => log.userId === auth.user.id)
-      .reduce((sum, log) => sum + Number(log.estimatedSavings || 0), 0);
+        const totalSavings = data.savingsLogs
+          .filter((log) => log.userId === auth.user.id)
+          .reduce((sum, log) => sum + Number(log.estimatedSavings || 0), 0);
 
-    return {
-      logs,
-      totalSavings
-    };
-  });
+        return {
+          logs,
+          totalSavings
+        };
+      });
 
   sendJson(response, 200, result);
 }
@@ -697,11 +718,13 @@ async function handleRecommend(request, response) {
   const ingredients = normalizeIngredients(payload.ingredients, payload.ingredientsText);
   const preferences = normalizePreferences(payload.preferences);
   const pantryItems = auth
-    ? await db.get((data) =>
-        data.pantryItems
-          .filter((item) => item.userId === auth.user.id)
-          .sort(comparePantryItems)
-      )
+    ? typeof db.listPantryItemsByUserId === "function"
+      ? await db.listPantryItemsByUserId(auth.user.id)
+      : await db.get((data) =>
+          data.pantryItems
+            .filter((item) => item.userId === auth.user.id)
+            .sort(comparePantryItems)
+        )
     : [];
   const ingredientCheck = buildIngredientCheck({ inputIngredients: ingredients, pantryItems });
   const recommendationIngredients = ingredientCheck.recommendationIngredients;
@@ -1016,28 +1039,42 @@ async function logRecommendationLocally({
   }
 
   const now = new Date().toISOString();
-  await db.mutate((data) => {
-    data.recommendationLogs.push({
-      id: randomUUID(),
-      userId: auth?.user.id || null,
-      anonymousId,
-      inputIngredients,
-      preferences,
-      recommendation,
-      source,
-      createdAt: now
-    });
-
-    const topRecipe = recommendation.recipes[0];
-    if (topRecipe) {
-      data.savingsLogs.push({
+  const recommendationLog = {
+    id: randomUUID(),
+    userId: auth?.user.id || null,
+    anonymousId,
+    inputIngredients,
+    preferences,
+    recommendation,
+    source,
+    createdAt: now
+  };
+  const topRecipe = recommendation.recipes[0];
+  const savingsLog = topRecipe
+    ? {
         id: randomUUID(),
         userId: auth?.user.id || null,
         anonymousId,
         recipeName: topRecipe.name,
         estimatedSavings: topRecipe.estimatedSavings,
         createdAt: now
-      });
+      }
+    : null;
+
+  if (typeof db.insertRecommendationEntries === "function") {
+    await db.insertRecommendationEntries({
+      recommendationLog,
+      savingsLog,
+      trimUserId: auth?.user.id || null
+    });
+    return { enabled: true, stored: true };
+  }
+
+  await db.mutate((data) => {
+    data.recommendationLogs.push(recommendationLog);
+
+    if (savingsLog) {
+      data.savingsLogs.push(savingsLog);
     }
 
     if (auth) {
@@ -1173,21 +1210,27 @@ async function createUserSession(user, request) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
 
-  await db.mutate((data) => {
-    const currentTime = Date.now();
-    data.sessions = data.sessions.filter((session) => new Date(session.expiresAt).getTime() > currentTime);
-    data.sessions.push({
-      id: randomUUID(),
-      userId: user.id,
-      tokenHash,
-      csrfToken,
-      createdAt: now.toISOString(),
-      lastSeenAt: now.toISOString(),
-      expiresAt,
-      userAgent: String(request.headers["user-agent"] || "").slice(0, 240),
-      ipHash: hashClientAddress(getClientIp(request))
+  const record = {
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash,
+    csrfToken,
+    createdAt: now.toISOString(),
+    lastSeenAt: now.toISOString(),
+    expiresAt,
+    userAgent: String(request.headers["user-agent"] || "").slice(0, 240),
+    ipHash: hashClientAddress(getClientIp(request))
+  };
+
+  if (typeof db.createSession === "function") {
+    await db.createSession(record, now.toISOString());
+  } else {
+    await db.mutate((data) => {
+      const currentTime = Date.now();
+      data.sessions = data.sessions.filter((session) => new Date(session.expiresAt).getTime() > currentTime);
+      data.sessions.push(record);
     });
-  });
+  }
 
   return {
     csrfToken,
@@ -1203,6 +1246,10 @@ async function resolveSession(request) {
   }
 
   const tokenHash = hashSessionToken(token);
+  if (typeof db.findActiveSessionAuth === "function") {
+    return db.findActiveSessionAuth(tokenHash, new Date().toISOString());
+  }
+
   const now = Date.now();
   return db.get((data) => {
     const session = data.sessions.find((item) => item.tokenHash === tokenHash);
@@ -1250,6 +1297,10 @@ async function requireAdmin(request, options = {}) {
 
 async function resolveIpBlock(request) {
   const ipHash = hashClientAddress(getClientIp(request));
+  if (typeof db.findIpBlockByHash === "function") {
+    return db.findIpBlockByHash(ipHash);
+  }
+
   return db.get((data) => {
     const ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
     return ipBlocks.find((block) => block.ipHash === ipHash) || null;
