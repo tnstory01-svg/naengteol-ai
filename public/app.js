@@ -22,6 +22,7 @@ const adminPanel = document.querySelector("#adminPanel");
 const adminSummary = document.querySelector("#adminSummary");
 const adminRefreshButton = document.querySelector("#adminRefreshButton");
 const adminUserList = document.querySelector("#adminUserList");
+const adminUserPager = document.querySelector("#adminUserPager");
 const adminIpBlockList = document.querySelector("#adminIpBlockList");
 const adminMessage = document.querySelector("#adminMessage");
 const pantryForm = document.querySelector("#pantryForm");
@@ -445,6 +446,7 @@ const state = {
   history: [],
   totalSavings: 0,
   adminOverview: null,
+  adminUserPage: 1,
   explorer: getDefaultExplorerSelection()
 };
 
@@ -507,6 +509,15 @@ function bindEvents() {
   });
 
   adminRefreshButton.addEventListener("click", async () => {
+    await refreshAdminOverview();
+  });
+
+  adminUserPager.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-admin-user-page]");
+    if (!button) {
+      return;
+    }
+    state.adminUserPage = Math.max(1, Number(button.dataset.adminUserPage || 1));
     await refreshAdminOverview();
   });
 
@@ -629,7 +640,7 @@ async function hydrateProtectedData() {
   state.totalSavings = history.totalSavings || 0;
 
   if (isAdmin()) {
-    const overview = await apiFetch("/api/admin/overview");
+    const overview = await apiFetch(adminOverviewUrl());
     state.adminOverview = overview;
   } else {
     state.adminOverview = null;
@@ -714,7 +725,7 @@ async function refreshAdminOverview() {
 
   adminRefreshButton.disabled = true;
   try {
-    state.adminOverview = await apiFetch("/api/admin/overview");
+    state.adminOverview = await apiFetch(adminOverviewUrl());
     renderAdmin();
     setAdminMessage("Admin data refreshed.", false);
   } catch (error) {
@@ -722,6 +733,14 @@ async function refreshAdminOverview() {
   } finally {
     adminRefreshButton.disabled = false;
   }
+}
+
+function adminOverviewUrl() {
+  const params = new URLSearchParams({
+    userPage: String(state.adminUserPage),
+    userPageSize: "25"
+  });
+  return `/api/admin/overview?${params.toString()}`;
 }
 
 async function saveAdminUser(userId) {
@@ -857,7 +876,8 @@ function canDedupeGet(path) {
   if (/^https?:\/\//i.test(value)) {
     return false;
   }
-  const normalized = value.startsWith("/") ? value : `/${value}`;
+  const normalizedPath = value.split("?")[0];
+  const normalized = normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`;
   return DEDUPED_GET_PATHS.has(normalized);
 }
 
@@ -899,6 +919,7 @@ function clearAuthState() {
   state.history = [];
   state.totalSavings = 0;
   state.adminOverview = null;
+  state.adminUserPage = 1;
 }
 
 function renderAll() {
@@ -938,6 +959,7 @@ function renderAdmin() {
   if (!visible) {
     adminSummary.innerHTML = "";
     adminUserList.innerHTML = '<span class="empty-state">Admin access is required.</span>';
+    renderAdminUserPager(null);
     adminIpBlockList.innerHTML = '<span class="empty-state">Admin access is required.</span>';
     setAdminMessage("", false);
     return;
@@ -947,6 +969,7 @@ function renderAdmin() {
   if (!overview) {
     adminSummary.innerHTML = "";
     adminUserList.innerHTML = '<span class="empty-state">Loading admin data.</span>';
+    renderAdminUserPager(null);
     adminIpBlockList.innerHTML = '<span class="empty-state">Loading blocked IPs.</span>';
     return;
   }
@@ -971,6 +994,7 @@ function renderAdmin() {
     .join("");
 
   renderAdminUsers(overview.users || []);
+  renderAdminUserPager(overview.pagination?.users || null);
   renderAdminIpBlocks(overview.ipBlocks || []);
 }
 
@@ -1027,6 +1051,27 @@ function renderAdminUsers(users) {
     `;
     adminUserList.append(row);
   }
+}
+
+function renderAdminUserPager(pagination) {
+  if (!pagination || Number(pagination.totalPages || 0) <= 1) {
+    adminUserPager.classList.add("hidden");
+    adminUserPager.innerHTML = "";
+    return;
+  }
+
+  const page = Number(pagination.page || 1);
+  const totalPages = Number(pagination.totalPages || 1);
+  adminUserPager.classList.remove("hidden");
+  adminUserPager.innerHTML = `
+    <button type="button" class="secondary-button compact-button" data-admin-user-page="${page - 1}" ${
+      page <= 1 ? "disabled" : ""
+    }>Prev</button>
+    <span>${page.toLocaleString("ko-KR")} / ${totalPages.toLocaleString("ko-KR")}</span>
+    <button type="button" class="secondary-button compact-button" data-admin-user-page="${page + 1}" ${
+      page >= totalPages ? "disabled" : ""
+    }>Next</button>
+  `;
 }
 
 function renderAdminIpBlocks(blocks) {

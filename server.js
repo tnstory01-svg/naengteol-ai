@@ -216,7 +216,7 @@ export async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/admin/overview") {
-      await handleAdminOverview(request, response);
+      await handleAdminOverview(request, response, url);
       return;
     }
 
@@ -316,25 +316,39 @@ async function handleRegister(request, response) {
 
   const passwordHash = await hashPassword(password);
   const now = new Date().toISOString();
-  const user = await db.mutate((data) => {
-    if (data.users.some((item) => item.email === email)) {
-      throw new HttpError(409, "이미 가입된 이메일입니다.");
-    }
+  const record = {
+    id: randomUUID(),
+    email,
+    displayName,
+    passwordHash,
+    role: "user",
+    status: "active",
+    permissions: {},
+    createdAt: now,
+    updatedAt: now
+  };
+  const user = typeof db.insertUser === "function"
+    ? await (async () => {
+        if (await db.findUserByEmail(email)) {
+          throw new HttpError(409, "이미 가입된 이메일입니다.");
+        }
+        try {
+          return publicUser(await db.insertUser(record));
+        } catch (error) {
+          if (isUniqueConstraintError(error)) {
+            throw new HttpError(409, "이미 가입된 이메일입니다.");
+          }
+          throw error;
+        }
+      })()
+    : await db.mutate((data) => {
+        if (data.users.some((item) => item.email === email)) {
+          throw new HttpError(409, "이미 가입된 이메일입니다.");
+        }
 
-    const record = {
-      id: randomUUID(),
-      email,
-      displayName,
-      passwordHash,
-      role: "user",
-      status: "active",
-      permissions: {},
-      createdAt: now,
-      updatedAt: now
-    };
-    data.users.push(record);
-    return publicUser(record);
-  });
+        data.users.push(record);
+        return publicUser(record);
+      });
 
   const session = await createUserSession(user, request);
   sendJson(
@@ -368,17 +382,16 @@ async function handleLogin(request, response) {
   }
 
   if (normalizeUserStatus(userRecord.status) !== "active") {
-    throw new HttpError(403, "This account is suspended.");
+    throw new HttpError(403, "비활성화된 계정입니다. 관리자에게 문의해 주세요.");
   }
 
-  const user = publicUser(userRecord);
-  const session = await createUserSession(user, request);
+  const session = await createUserSession(userRecord, request);
   sendJson(
     response,
     200,
     {
       authenticated: true,
-      user,
+      user: publicUser(userRecord),
       csrfToken: session.csrfToken
     },
     { "Set-Cookie": session.cookie }
@@ -431,16 +444,34 @@ async function handleSupportChat(request, response) {
   sendJson(response, 200, result);
 }
 
-async function handleAdminOverview(request, response) {
+async function handleAdminOverview(request, response, url) {
   const auth = await requireAdmin(request);
-  const cacheKey = auth.user.id;
+  const userPage = clampInt(url.searchParams.get("userPage"), 1, 100_000, 1);
+  const userPageSize = clampInt(url.searchParams.get("userPageSize"), 5, 100, 25);
+  const ipBlockPage = clampInt(url.searchParams.get("ipBlockPage"), 1, 100_000, 1);
+  const ipBlockPageSize = clampInt(url.searchParams.get("ipBlockPageSize"), 5, 100, 50);
+  const cacheKey = [auth.user.id, userPage, userPageSize, ipBlockPage, ipBlockPageSize].join(":");
   const cachedOverview = adminOverviewCache.get(cacheKey);
   if (cachedOverview && cachedOverview.expiresAt > Date.now()) {
     sendJson(response, 200, cachedOverview.value, { "X-Admin-Overview-Cache": "hit" });
     return;
   }
 
-  const overview = await db.get((data) => buildAdminOverview(data, auth.user.id));
+  const overview = typeof db.getAdminOverviewSnapshot === "function"
+    ? await (async () => {
+        const snapshot = await db.getAdminOverviewSnapshot({
+          userPage,
+          userPageSize,
+          ipBlockPage,
+          ipBlockPageSize,
+          nowIso: new Date().toISOString()
+        });
+        return buildAdminOverview(snapshot.data, auth.user.id, {
+          stats: snapshot.stats,
+          pagination: snapshot.pagination
+        });
+      })()
+    : await db.get((data) => buildAdminOverview(data, auth.user.id));
   adminOverviewCache.set(cacheKey, {
     value: overview,
     expiresAt: Date.now() + ADMIN_OVERVIEW_CACHE_TTL_MS
@@ -462,45 +493,47 @@ async function handleAdminUserUpdate(request, response, userId) {
   const requestedStatus = hasStatus ? parseUserStatus(payload.status) : null;
   const now = new Date().toISOString();
 
-  const user = await db.mutate((data) => {
-    const record = data.users.find((item) => item.id === userId);
-    if (!record) {
-      throw new HttpError(404, "User not found.");
-    }
+  const user = typeof db.updateUserAccount === "function"
+    ? await updateAdminUserDirect({ auth, userId, requestedRole, requestedStatus, now })
+    : await db.mutate((data) => {
+        const record = data.users.find((item) => item.id === userId);
+        if (!record) {
+          throw new HttpError(404, "User not found.");
+        }
 
-    const currentRole = normalizeUserRole(record.role);
-    const currentStatus = normalizeUserStatus(record.status);
-    const nextRole = requestedRole || currentRole;
-    const nextStatus = requestedStatus || currentStatus;
+        const currentRole = normalizeUserRole(record.role);
+        const currentStatus = normalizeUserStatus(record.status);
+        const nextRole = requestedRole || currentRole;
+        const nextStatus = requestedStatus || currentStatus;
 
-    if (record.id === auth.user.id && (nextRole !== currentRole || nextStatus !== currentStatus)) {
-      throw new HttpError(400, "You cannot change your own admin role or account status.");
-    }
+        if (record.id === auth.user.id && (nextRole !== currentRole || nextStatus !== currentStatus)) {
+          throw new HttpError(400, "You cannot change your own admin role or account status.");
+        }
 
-    if (currentRole === "admin" && nextRole !== "admin" && countAdminUsers(data) <= 1) {
-      throw new HttpError(400, "At least one admin account must remain.");
-    }
+        if (currentRole === "admin" && nextRole !== "admin" && countAdminUsers(data) <= 1) {
+          throw new HttpError(400, "At least one admin account must remain.");
+        }
 
-    if (
-      currentRole === "admin" &&
-      currentStatus === "active" &&
-      nextStatus !== "active" &&
-      countActiveAdminUsers(data) <= 1
-    ) {
-      throw new HttpError(400, "At least one active admin account must remain.");
-    }
+        if (
+          currentRole === "admin" &&
+          currentStatus === "active" &&
+          nextStatus !== "active" &&
+          countActiveAdminUsers(data) <= 1
+        ) {
+          throw new HttpError(400, "At least one active admin account must remain.");
+        }
 
-    record.role = nextRole;
-    record.status = nextStatus;
-    record.permissions = asObject(record.permissions);
-    record.updatedAt = now;
+        record.role = nextRole;
+        record.status = nextStatus;
+        record.permissions = asObject(record.permissions);
+        record.updatedAt = now;
 
-    if (nextStatus !== "active") {
-      data.sessions = data.sessions.filter((session) => session.userId !== record.id);
-    }
+        if (nextStatus !== "active") {
+          data.sessions = data.sessions.filter((session) => session.userId !== record.id);
+        }
 
-    return buildAdminUser(record, data);
-  });
+        return buildAdminUser(record, data);
+      });
 
   clearAdminOverviewCache();
   sendJson(response, 200, { user });
@@ -513,57 +546,59 @@ async function handleAdminUserIpBlock(request, response, userId) {
   const currentAdminIpHash = hashClientAddress(getClientIp(request));
   const now = new Date().toISOString();
 
-  const result = await db.mutate((data) => {
-    const target = data.users.find((item) => item.id === userId);
-    if (!target) {
-      throw new HttpError(404, "User not found.");
-    }
+  const result = typeof db.insertIpBlocks === "function"
+    ? await blockAdminUserIpDirect({ auth, userId, reason, currentAdminIpHash, now })
+    : await db.mutate((data) => {
+        const target = data.users.find((item) => item.id === userId);
+        if (!target) {
+          throw new HttpError(404, "User not found.");
+        }
 
-    if (isAdminUser(target)) {
-      throw new HttpError(400, "Admin account IPs cannot be blocked from this action.");
-    }
+        if (isAdminUser(target)) {
+          throw new HttpError(400, "Admin account IPs cannot be blocked from this action.");
+        }
 
-    const targetIpHashes = uniqueValues(
-      data.sessions
-        .filter((session) => session.userId === target.id)
-        .map((session) => session.ipHash)
-        .filter(Boolean)
-    );
-    const ipHashesToBlock = targetIpHashes.filter((ipHash) => ipHash !== currentAdminIpHash);
+        const targetIpHashes = uniqueValues(
+          data.sessions
+            .filter((session) => session.userId === target.id)
+            .map((session) => session.ipHash)
+            .filter(Boolean)
+        );
+        const ipHashesToBlock = targetIpHashes.filter((ipHash) => ipHash !== currentAdminIpHash);
 
-    if (ipHashesToBlock.length === 0) {
-      throw new HttpError(400, "No blockable session IP was found for this user.");
-    }
+        if (ipHashesToBlock.length === 0) {
+          throw new HttpError(400, "No blockable session IP was found for this user.");
+        }
 
-    data.ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
-    const createdBlocks = [];
-    for (const ipHash of ipHashesToBlock) {
-      const existing = data.ipBlocks.find((block) => block.ipHash === ipHash);
-      if (existing) {
-        continue;
-      }
+        data.ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
+        const createdBlocks = [];
+        for (const ipHash of ipHashesToBlock) {
+          const existing = data.ipBlocks.find((block) => block.ipHash === ipHash);
+          if (existing) {
+            continue;
+          }
 
-      const block = {
-        id: randomUUID(),
-        ipHash,
-        reason,
-        userId: target.id,
-        createdByUserId: auth.user.id,
-        createdAt: now
-      };
-      data.ipBlocks.push(block);
-      createdBlocks.push(block);
-    }
+          const block = {
+            id: randomUUID(),
+            ipHash,
+            reason,
+            userId: target.id,
+            createdByUserId: auth.user.id,
+            createdAt: now
+          };
+          data.ipBlocks.push(block);
+          createdBlocks.push(block);
+        }
 
-    data.sessions = data.sessions.filter((session) => session.userId !== target.id);
+        data.sessions = data.sessions.filter((session) => session.userId !== target.id);
 
-    return {
-      blockedCount: createdBlocks.length,
-      alreadyBlockedCount: ipHashesToBlock.length - createdBlocks.length,
-      skippedCurrentAdminIp: targetIpHashes.length !== ipHashesToBlock.length,
-      blocks: createdBlocks.map((block) => buildPublicIpBlock(block, data))
-    };
-  });
+        return {
+          blockedCount: createdBlocks.length,
+          alreadyBlockedCount: ipHashesToBlock.length - createdBlocks.length,
+          skippedCurrentAdminIp: targetIpHashes.length !== ipHashesToBlock.length,
+          blocks: createdBlocks.map((block) => buildPublicIpBlock(block, data))
+        };
+      });
 
   clearAdminOverviewCache();
   sendJson(response, 200, result);
@@ -571,19 +606,113 @@ async function handleAdminUserIpBlock(request, response, userId) {
 
 async function handleAdminIpUnblock(request, response, blockId) {
   await requireAdmin(request, { requireCsrf: true });
-  const block = await db.mutate((data) => {
-    data.ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
-    const index = data.ipBlocks.findIndex((item) => item.id === blockId);
-    if (index === -1) {
-      throw new HttpError(404, "IP block not found.");
-    }
+  const block = typeof db.deleteIpBlockById === "function"
+    ? await (async () => {
+        const removed = await db.deleteIpBlockById(blockId);
+        if (!removed) {
+          throw new HttpError(404, "IP block not found.");
+        }
+        return buildPublicIpBlock(removed, {});
+      })()
+    : await db.mutate((data) => {
+        data.ipBlocks = Array.isArray(data.ipBlocks) ? data.ipBlocks : [];
+        const index = data.ipBlocks.findIndex((item) => item.id === blockId);
+        if (index === -1) {
+          throw new HttpError(404, "IP block not found.");
+        }
 
-    const [removed] = data.ipBlocks.splice(index, 1);
-    return buildPublicIpBlock(removed, data);
-  });
+        const [removed] = data.ipBlocks.splice(index, 1);
+        return buildPublicIpBlock(removed, data);
+      });
 
   clearAdminOverviewCache();
   sendJson(response, 200, { ok: true, block });
+}
+
+async function updateAdminUserDirect({ auth, userId, requestedRole, requestedStatus, now }) {
+  const record = await db.findUserById(userId);
+  if (!record) {
+    throw new HttpError(404, "User not found.");
+  }
+
+  const currentRole = normalizeUserRole(record.role);
+  const currentStatus = normalizeUserStatus(record.status);
+  const nextRole = requestedRole || currentRole;
+  const nextStatus = requestedStatus || currentStatus;
+
+  if (record.id === auth.user.id && (nextRole !== currentRole || nextStatus !== currentStatus)) {
+    throw new HttpError(400, "You cannot change your own admin role or account status.");
+  }
+
+  if (currentRole === "admin" && nextRole !== "admin" && (await db.countUsers({ role: "admin" })) <= 1) {
+    throw new HttpError(400, "At least one admin account must remain.");
+  }
+
+  if (
+    currentRole === "admin" &&
+    currentStatus === "active" &&
+    nextStatus !== "active" &&
+    (await db.countUsers({ role: "admin", status: "active" })) <= 1
+  ) {
+    throw new HttpError(400, "At least one active admin account must remain.");
+  }
+
+  const updated = await db.updateUserAccount(record.id, {
+    role: nextRole,
+    status: nextStatus,
+    permissions: asObject(record.permissions),
+    updatedAt: now
+  });
+  if (!updated) {
+    throw new HttpError(404, "User not found.");
+  }
+
+  if (nextStatus !== "active") {
+    await db.deleteSessionsByUserId(record.id);
+  }
+
+  return buildAdminUser(updated, { users: [updated], sessions: [], ipBlocks: [], pantryItems: [], recommendationLogs: [], savingsLogs: [] });
+}
+
+async function blockAdminUserIpDirect({ auth, userId, reason, currentAdminIpHash, now }) {
+  const target = await db.findUserById(userId);
+  if (!target) {
+    throw new HttpError(404, "User not found.");
+  }
+
+  if (isAdminUser(target)) {
+    throw new HttpError(400, "Admin account IPs cannot be blocked from this action.");
+  }
+
+  const sessions = await db.listSessionsByUserId(target.id);
+  const targetIpHashes = uniqueValues(sessions.map((session) => session.ipHash).filter(Boolean));
+  const ipHashesToBlock = targetIpHashes.filter((ipHash) => ipHash !== currentAdminIpHash);
+
+  if (ipHashesToBlock.length === 0) {
+    throw new HttpError(400, "No blockable session IP was found for this user.");
+  }
+
+  const existingBlocks = await db.findIpBlocksByHashes(ipHashesToBlock);
+  const existingIpHashes = new Set(existingBlocks.map((block) => block.ipHash));
+  const blocksToCreate = ipHashesToBlock
+    .filter((ipHash) => !existingIpHashes.has(ipHash))
+    .map((ipHash) => ({
+      id: randomUUID(),
+      ipHash,
+      reason,
+      userId: target.id,
+      createdByUserId: auth.user.id,
+      createdAt: now
+    }));
+  const createdBlocks = await db.insertIpBlocks(blocksToCreate);
+  await db.deleteSessionsByUserId(target.id);
+
+  return {
+    blockedCount: createdBlocks.length,
+    alreadyBlockedCount: ipHashesToBlock.length - createdBlocks.length,
+    skippedCurrentAdminIp: targetIpHashes.length !== ipHashesToBlock.length,
+    blocks: createdBlocks.map((block) => buildPublicIpBlock(block, { users: [target, auth.user] }))
+  };
 }
 
 function clearAdminOverviewCache() {
@@ -1174,6 +1303,22 @@ async function ensureAdminAccount() {
   const displayName = normalizeDisplayName(process.env.ADMIN_DISPLAY_NAME || "Admin", email);
   const passwordHash = await hashPassword(password);
   const now = new Date().toISOString();
+  const record = {
+    id: randomUUID(),
+    email,
+    displayName,
+    passwordHash,
+    role: "admin",
+    status: "active",
+    permissions: {},
+    createdAt: now,
+    updatedAt: now
+  };
+
+  if (typeof db.ensureAdminUser === "function") {
+    await db.ensureAdminUser(record);
+    return;
+  }
 
   await db.mutate((data) => {
     const existing = data.users.find((item) => item.email === email);
@@ -1187,17 +1332,6 @@ async function ensureAdminAccount() {
       return publicUser(existing);
     }
 
-    const record = {
-      id: randomUUID(),
-      email,
-      displayName,
-      passwordHash,
-      role: "admin",
-      status: "active",
-      permissions: {},
-      createdAt: now,
-      updatedAt: now
-    };
     data.users.push(record);
     return publicUser(record);
   });
@@ -1872,7 +2006,7 @@ function uniqueSearchLinks(links) {
   });
 }
 
-function buildAdminOverview(data, currentUserId) {
+function buildAdminOverview(data, currentUserId, options = {}) {
   const users = (Array.isArray(data.users) ? data.users : [])
     .map((user) => buildAdminUser(user, data))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -1885,7 +2019,7 @@ function buildAdminOverview(data, currentUserId) {
 
   return {
     currentUserId,
-    stats: {
+    stats: options.stats || {
       totalUsers: users.length,
       activeUsers: users.filter((user) => user.status === "active").length,
       suspendedUsers: users.filter((user) => user.status === "suspended").length,
@@ -1893,6 +2027,7 @@ function buildAdminOverview(data, currentUserId) {
       activeSessions: activeSessions.length,
       blockedIps: ipBlocks.length
     },
+    pagination: options.pagination || null,
     users,
     ipBlocks
   };
@@ -1940,7 +2075,7 @@ function buildAdminUser(user, data) {
 }
 
 function buildPublicIpBlock(block, data) {
-  const users = Array.isArray(data.users) ? data.users : [];
+  const users = Array.isArray(data.ipBlockUsers) ? data.ipBlockUsers : Array.isArray(data.users) ? data.users : [];
   const target = users.find((user) => user.id === block.userId);
   const createdBy = users.find((user) => user.id === block.createdByUserId);
 
@@ -1994,6 +2129,10 @@ function parseUserStatus(value) {
     throw new HttpError(400, "Invalid account status.");
   }
   return status;
+}
+
+function isUniqueConstraintError(error) {
+  return /23505|duplicate|unique/i.test(String(error?.message || ""));
 }
 
 function countAdminUsers(data) {

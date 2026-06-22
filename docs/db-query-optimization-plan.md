@@ -18,7 +18,7 @@
 
 ## Phase 2 Scope Started
 
-The first query optimization pass adds direct Supabase access methods for high-frequency paths while preserving the local JSON DB fallback:
+The query optimization passes add direct Supabase access methods for high-frequency paths while preserving the local JSON DB fallback:
 
 - user lookup by email
 - active session lookup by token hash
@@ -28,16 +28,21 @@ The first query optimization pass adds direct Supabase access methods for high-f
 - recommendation history list by user and limit
 - recommendation and savings log insert
 
-The fallback snapshot methods remain available for lower-frequency admin and bootstrap paths until the repository layer is split.
+- admin overview user pagination and page-level admin counts
+- admin user status/role update
+- admin IP block/unblock
+- registration user insert
+- admin bootstrap direct upsert
+
+The fallback snapshot methods remain available for local JSON DB compatibility and any lower-frequency paths not yet split into repository methods.
 
 ## Remaining Work
 
 ### Phase 2 Follow-up
 
-- Move admin overview to paginated queries or an RPC/view.
-- Replace admin user status/role update and IP block mutations with direct Supabase queries.
-- Replace admin bootstrap with direct upsert logic.
 - Add Supabase query timing evidence from REST logs before and after the change.
+- Consider an RPC/view for admin overview if page-level fan-out still costs too much after measuring.
+- Move the remaining legacy standalone recommendation logging helper into the Supabase database adapter or remove it if redundant.
 
 ### Phase 3 Cache Design
 
