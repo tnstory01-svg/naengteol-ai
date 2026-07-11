@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "kind": "black-box-api-test-report",
+  "command": "npm run test:api",
+  "status": "passed",
+  "tests": 13,
+  "coverage": [
+    "HttpOnly guest bootstrap reuse without token exposure",
+    "missing and forged guest CSRF rejected",
+    "forged guest cookie rejected",
+    "browser anonymousId ignored",
+    "server snapshot defeats client savings forgery",
+    "selection idempotency and duplicate conflict",
+    "cross-guest recommendation reference rejected",
+    "registration merge summary",
+    "login does not merge until explicit authenticated merge",
+    "all legacy GET and HEAD 308 mappings plus JSON API 404",
+    "admin suspension revokes sessions",
+    "IP block denies API access and can be removed",
+    "guest bootstrap rate limited at request 121",
+    "expired/revoked guest resolution and cleanup",
+    "guest exposure retention cap",
+    "Supabase guest pantry stable-owner mapping and owner-scoped exposure lookup",
+    "pantry quarantine/XOR/index and real pantry merge SQL"
+  ],
+  "unitComplements": [
+    "expired and revoked guest credentials do not resolve",
+    "account-wins stable-ID union",
+    "partial merge retains guest and retries failed step only",
+    "legacy exposure savings excluded",
+    "Supabase RLS/service-role/RPC contracts"
+  ],
+  "verdict": "passed",
+  "unitTests": 16
+}

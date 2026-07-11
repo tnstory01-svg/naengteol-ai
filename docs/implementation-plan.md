@@ -1,157 +1,52 @@
-# Implementation Plan
+# 남은 작업 계획
 
-## Product Goal
+완료된 MVP·빌드 순서는 반복하지 않고, 아래 순서의 미완료 작업만 진행한다.
 
-Build a one-day hackathon MVP for 냉장고 재료:
+## 1. GROQ 기반 스테이징 증거 확보
 
-```text
-ingredient input -> AI recipe recommendations -> savings report
+- 운영 담당자가 직접 제공한 `GROQ_API_KEY`만 스테이징 시크릿으로 등록한다. 키를 문서, 저장소, 브라우저 번들에 기록하지 않는다.
+- 스테이징에서 실제 제공자 호출 경로를 검증한다. 데모·목업·fallback 응답은 증거로 인정하지 않는다.
+- 동일한 대표 요청으로 워밍업 10회 후, 동시성 5로 50회 호출을 수행한다.
+- 모든 성공 응답에 `meta.source=groq`가 있어야 하며, 전체 호출의 p95 지연시간은 3초 이하여야 한다. 실패·타임아웃·제공자 불일치가 있으면 원인을 수정한 뒤 전체 측정을 다시 수행한다.
+
+실행 전에 실제 provider-backed 측정 harness를 추가하거나, 이미 존재하는 실제 harness를 지정해 사용한다. 존재하지 않는 스크립트명이나 가상 결과를 검증 명령으로 문서화하지 않는다. harness는 다음 계약을 강제해야 한다: 워밍업 10회, 동시성 5의 본호출 50회, 모든 성공 응답의 `meta.source=groq`, p95 3초 이하.
+검증 산출물에는 실행 시각, 대상 URL, 워밍업/본호출 수, 동시성, 성공·실패 수, p95, 응답별 `meta.source` 확인 결과를 남긴다.
+
+## 2. 최종 동결 테스트·리뷰 게이트
+
+- 1단계의 측정 산출물과 현재 배포 후보를 기준으로 최종 테스트와 코드·보안·설정 리뷰를 수행한다.
+- 필수 시나리오, 오류 처리, 비밀값 노출 여부, 제공자 메타데이터, 배포 설정을 확인하고, 발견된 문제를 해결한 뒤 동일 검증을 재실행한다.
+- 승인된 후보와 변경 범위를 동결한다. 동결 후 변경은 재리뷰와 재검증 없이는 배포하지 않는다.
+- 최종 검증에 사용할 기존 명령은 다음과 같다.
+
+```bash
+npm test
+npm run test:api
+npm run test:pwa
+npm run test:browser
+node --check server.js
+node --check api/index.js
+node --check lib/local-db.js
+node --check lib/supabase-db.js
 ```
 
-The first version should prove that users can turn ingredients they already own
-into practical meals and visible food-cost savings.
+## 3. 외부 서비스 마이그레이션 및 배포
 
-## MVP Scope
+- 대상 Supabase 프로젝트에 migration을 적용하고, backend가 해당 프로젝트의 외부 환경변수·권한·RLS 설정으로 동작하는지 확인한다.
+- 외부 backend를 배포한 뒤 staging에서 API 연결과 데이터 기록을 확인한다.
+- GitHub Pages에 frontend를 배포하고, Pages의 공개 URL에서 외부 backend 호출 및 주요 사용자 흐름을 확인한다. 비밀키는 frontend에 포함하지 않는다.
 
-### Required
+예시 검증 명령:
 
-- Ingredient input
-- Recipe recommendation results
-- Missing ingredient display
-- Priority ingredients based on expiration or waste risk
-- Estimated savings calculation
-- Recommendation history storage
-
-### Optional
-
-- Anonymous user mode
-- Basic weekly savings summary
-- Demo fallback results when the AI API is unavailable
-
-### Excluded From Day-One Build
-
-- Fridge photo recognition
-- Payment
-- Grocery partner integration
-- Full nutrition analysis
-
-## Technical Architecture
-
-```text
-Browser UI
-  -> App server API
-  -> OpenAI API for structured recipe recommendations
-  -> Supabase REST API for user and recommendation data
+```bash
+supabase link --project-ref <project-ref>
+supabase db push
+curl --fail https://<backend-host>/health
+curl --fail https://<github-pages-host>/
 ```
 
-API keys must stay server-side. The browser should never call OpenAI directly.
+## 4. 측정으로 판정하는 출시 후 최적화
 
-## AI API Management
-
-- Store `OPENAI_API_KEY` in `.env`.
-- Commit only `.env.example`.
-- Call AI through `POST /api/recommend`.
-- Request structured JSON output from the model.
-- Validate and normalize AI output before sending it to the UI.
-- Use deterministic fallback recommendations when the AI API fails.
-- Add request limits later if the demo grows beyond local testing.
-
-Expected AI response shape:
-
-```json
-{
-  "recipes": [
-    {
-      "name": "김치볶음밥",
-      "reason": "보유 재료 대부분으로 만들 수 있음",
-      "ownedIngredients": ["김치", "밥", "계란", "대파"],
-      "missingIngredients": ["참기름"],
-      "cookTimeMinutes": 10,
-      "difficulty": "easy",
-      "steps": ["대파를 볶는다", "김치를 넣는다", "밥과 김치를 넣고 볶는다"],
-      "estimatedSavings": 8500
-    }
-  ],
-  "priorityIngredients": ["두부"],
-  "summary": "배달 대신 조리하면 약 8,500원을 절약할 수 있습니다."
-}
-```
-
-## Database Strategy
-
-Use Supabase because it can cover database, authentication, and row-level
-security later. For the MVP, anonymous browser IDs are enough.
-
-Initial tables:
-
-```text
-anonymous_users
-- id
-- anonymous_id
-- created_at
-
-pantry_items
-- id
-- anonymous_id
-- name
-- quantity
-- expires_at
-- created_at
-
-recommendation_logs
-- id
-- anonymous_id
-- input_ingredients
-- ai_response
-- created_at
-
-savings_logs
-- id
-- anonymous_id
-- recipe_name
-- estimated_savings
-- created_at
-```
-
-For day one, recommendation logs and savings logs are the highest priority.
-Pantry persistence can be added after the core demo works.
-
-## Savings Formula
-
-Keep the calculation transparent and easy to explain:
-
-```text
-savings = average delivery cost - estimated home cooking cost
-```
-
-Initial constants:
-
-```text
-average delivery cost: 12000 KRW
-default home cooking cost: 3500 KRW
-default savings: 8500 KRW
-```
-
-The AI can suggest a value, but the server should clamp or replace unrealistic
-values.
-
-## Build Order
-
-1. Create app skeleton.
-2. Build ingredient input UI.
-3. Build recipe result cards.
-4. Add `POST /api/recommend`.
-5. Connect OpenAI API behind the server.
-6. Parse and validate JSON recommendations.
-7. Add fallback demo recommendations.
-8. Add Supabase REST logging.
-9. Build savings report panel.
-10. Add `.env.example` and setup notes.
-11. Test locally and push each useful milestone.
-
-## Repository Rules
-
-- Do not commit `.env`.
-- Do not expose API keys in frontend code.
-- Do not use `npm install` or `npm uninstall`.
-- Keep the first version small enough to demo reliably.
+- 출시 후 오류율, p95 지연시간, 제공자 성공률(`meta.source`), 핵심 흐름 전환율을 수집한다.
+- 기준 기간과 개선 목표를 먼저 기록하고, 측정 결과가 목표 미달일 때만 병목에 한정해 최적화한다.
+- 변경 전후 동일 지표로 비교해 개선이 확인된 변경만 유지하며, 악화되거나 근거가 부족한 변경은 되돌린다.

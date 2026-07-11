@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "kind": "web-performance-test-report",
+  "profile": {
+    "cpuThrottle": 4,
+    "rttMs": 150,
+    "downloadMbps": 1.6,
+    "uploadKbps": 750,
+    "runs": 5
+  },
+  "webVitals": {
+    "lcpMs": [
+      1106,
+      1120,
+      1099,
+      1111,
+      1117
+    ],
+    "inpMs": [
+      24,
+      32,
+      32,
+      24,
+      40
+    ],
+    "cls": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "thresholds": {
+    "lcpMs": 2500,
+    "inpMs": 200,
+    "cls": 0.1
+  },
+  "verdict": "passed",
+  "recommendationLoad": {
+    "warmups": 10,
+    "calls": 50,
+    "concurrency": 5,
+    "p95Ms": 32,
+    "maxMs": 37,
+    "allResponsesValid": true,
+    "browserFallback": false,
+    "serverSources": [
+      "fallback"
+    ]
+  },
+  "evidence": "Chromium CDP with cache disabled, 4x CPU and specified network throttling; API load replay used owned fi_guest cookie and guest CSRF."
+}

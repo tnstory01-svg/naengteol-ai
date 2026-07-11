@@ -37,10 +37,17 @@ const SUPABASE_DB_ENABLED = parseBooleanFlag(
 const SESSION_COOKIE_NAME = "fi_session";
 const SESSION_TTL_DAYS = clampInt(process.env.SESSION_TTL_DAYS, 1, 30, 7);
 const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
+const GUEST_COOKIE_NAME = "fi_guest";
+const GUEST_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_DELIVERY_COST = 12000;
 const DEFAULT_HOME_COOKING_COST = 3500;
 const USER_ROLES = new Set(["user", "admin"]);
 const USER_STATUSES = new Set(["active", "suspended"]);
+const LEGACY_REDIRECTS = new Map([
+  ["/index.html", "/"], ["/shopping.html", "/tools.html#shopping"], ["/notes.html", "/tools.html#notes"],
+  ["/places.html", "/tools.html#places"], ["/tips.html", "/tools.html#tips"], ["/chatbot.html", "/tools.html#chatbot"],
+  ["/login.html", "/me.html#login"], ["/register.html", "/me.html#register"]
+]);
 
 const db = SUPABASE_DB_ENABLED && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? new SupabaseDatabase({
@@ -57,6 +64,7 @@ const adminOverviewCache = new Map();
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
@@ -190,6 +198,11 @@ export async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/guest/session") {
+      await handleGuestSession(request, response);
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/auth/register") {
       await handleRegister(request, response);
       return;
@@ -207,6 +220,16 @@ export async function handleRequest(request, response) {
 
     if (request.method === "GET" && url.pathname === "/api/auth/session") {
       await handleSession(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/guest/merge") {
+      await handleGuestMerge(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/menu-selections") {
+      await handleMenuSelection(request, response);
       return;
     }
 
@@ -259,6 +282,11 @@ export async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/shortcuts") { await handleShortcutList(request, response); return; }
+    if (request.method === "POST" && url.pathname === "/api/shortcuts") { await handleShortcutCreate(request, response); return; }
+    const shortcutMatch = url.pathname.match(/^\/api\/shortcuts\/([^/]+)$/);
+    if (shortcutMatch && request.method === "DELETE") { await handleShortcutDelete(request, response, decodeURIComponent(shortcutMatch[1])); return; }
+
     if (request.method === "GET" && url.pathname === "/api/recommendations") {
       await handleRecommendationHistory(request, response, url);
       return;
@@ -269,8 +297,20 @@ export async function handleRequest(request, response) {
       return;
     }
 
-    if (request.method === "GET") {
-      serveStatic(url.pathname, response);
+    if (url.pathname.startsWith("/api/")) {
+      sendJson(response, 404, { error: "Not found" });
+      return;
+    }
+
+    if (["GET", "HEAD"].includes(request.method || "")) {
+      const destination = LEGACY_REDIRECTS.get(url.pathname);
+      if (destination) {
+        const [targetPath, fragment = ""] = destination.split("#");
+        response.writeHead(308, { ...securityHeaders(), Location: `${targetPath}${url.search}${fragment ? `#${fragment}` : ""}` });
+        response.end();
+        return;
+      }
+      serveStatic(url.pathname, response, request.method);
       return;
     }
 
@@ -299,8 +339,97 @@ function isMainModule() {
   return Boolean(process.argv[1] && path.resolve(process.argv[1]) === __filename);
 }
 
+async function handleGuestSession(request, response) {
+  if (typeof db.cleanupExpiredGuestSessions === "function") await db.cleanupExpiredGuestSessions();
+  const existing = await resolveGuestSession(request);
+  if (existing) {
+    sendJson(response, 200, { csrfToken: existing.csrfToken, expiresAt: existing.expiresAt });
+    return;
+  }
+  const token = createSessionToken();
+  const now = new Date();
+  const record = {
+    id: randomUUID(), tokenHash: hashSessionToken(token), csrfToken: createCsrfToken(),
+    createdAt: now.toISOString(), lastSeenAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + GUEST_TTL_MS).toISOString(), revokedAt: null
+  };
+  const guest = typeof db.createGuestSession === "function"
+    ? await db.createGuestSession(record)
+    : await db.mutate((data) => { data.guestSessions ||= []; data.guestSessions.push(record); return record; });
+  sendJson(response, 200, { csrfToken: guest.csrfToken, expiresAt: guest.expiresAt }, { "Set-Cookie": serializeGuestCookie(token, request) });
+}
+
+async function resolveGuestSession(request) {
+  const token = parseCookies(request.headers.cookie || "")[GUEST_COOKIE_NAME];
+  if (!token || token.length < 30) return null;
+  const tokenHash = hashSessionToken(token);
+  const now = new Date().toISOString();
+  if (typeof db.findGuestSessionByTokenHash === "function") return db.findGuestSessionByTokenHash(tokenHash, now);
+  return db.get((data) => (data.guestSessions || []).find((row) => row.tokenHash === tokenHash && !row.revokedAt && new Date(row.expiresAt).getTime() > Date.now()) || null);
+}
+
+function assertGuestCsrf(request, guest) {
+  const token = request.headers["x-csrf-token"];
+  if (!token || token !== guest.csrfToken) throw new HttpError(403, "게스트 보안 토큰이 만료되었거나 올바르지 않습니다.");
+}
+
+async function requireRequestOwner(request, { requireCsrf = true } = {}) {
+  const auth = await resolveSession(request);
+  if (auth) { if (requireCsrf) assertCsrf(request, auth.session); return { auth, guest: null, userId: auth.user.id, guestSessionId: null }; }
+  const guest = await resolveGuestSession(request);
+  if (!guest) throw new HttpError(401, "게스트 세션을 먼저 시작해 주세요.");
+  if (requireCsrf) assertGuestCsrf(request, guest);
+  return { auth: null, guest, userId: null, guestSessionId: guest.id };
+}
+
+async function handleGuestMerge(request, response) {
+  const auth = await requireSession(request, { requireCsrf: true });
+  const guest = await resolveGuestSession(request);
+  if (!guest) throw new HttpError(404, "병합할 게스트 데이터가 없습니다.");
+  const payload = asObject(await readJson(request, 8_000));
+  const idempotencyKey = normalizeShortText(payload.idempotencyKey, 160);
+  if (!idempotencyKey) throw new HttpError(400, "병합 요청 키가 필요합니다.");
+  const merge = await db.mergeGuestIntoAccount({ guestSessionId: guest.id, userId: auth.user.id, idempotencyKey });
+  const complete = ["completed", "succeeded"].includes(merge?.status);
+  sendJson(response, 200, { merge }, complete ? { "Set-Cookie": clearGuestCookie(request) } : {});
+}
+
+async function handleMenuSelection(request, response) {
+  const owner = await requireRequestOwner(request);
+  const payload = asObject(await readJson(request, 12_000));
+  const recommendationId = normalizeShortText(payload.recommendationId, 100);
+  const recipeId = normalizeShortText(payload.recipeId, 160);
+  const idempotencyKey = normalizeShortText(payload.idempotencyKey, 160);
+  if (!recommendationId || !recipeId || !idempotencyKey) throw new HttpError(400, "추천, 레시피, 요청 키가 모두 필요합니다.");
+  const findSelection = async (identity) => typeof db.findMenuSelection === "function"
+    ? db.findMenuSelection({ userId: owner.userId, guestSessionId: owner.guestSessionId, ...identity })
+    : db.get((data) => (data.menuSelections || []).find((row) => (owner.userId ? row.userId === owner.userId : row.guestSessionId === owner.guestSessionId) && (identity.idempotencyKey ? row.idempotencyKey === identity.idempotencyKey : row.recommendationId === identity.recommendationId)) || null);
+  const replay = await findSelection({ idempotencyKey });
+  if (replay) { sendJson(response, 200, { selectionId: replay.id, selection: { ...replay, outcome: "replayed" }, recipeSnapshot: replay.recipeSnapshot || replay.snapshot }); return; }
+  const prior = await findSelection({ recommendationId });
+  if (prior) throw new HttpError(409, "이미 선택한 추천입니다.", { selection: prior });
+  const exposure = typeof db.getRecommendationExposure === "function"
+    ? await db.getRecommendationExposure({ recommendationId, userId: owner.userId, guestSessionId: owner.guestSessionId })
+    : await db.get((data) => data.recommendationLogs.find((row) => row.recommendationId === recommendationId && (owner.userId ? row.userId === owner.userId : row.guestSessionId === owner.guestSessionId)));
+  const snapshot = exposure?.snapshot || exposure?.recommendation;
+  const recipe = (snapshot?.recipes || []).find((item) => item.id === recipeId || item.recipeId === recipeId);
+  if (!recipe) throw new HttpError(404, "선택할 수 있는 추천 메뉴를 찾지 못했습니다.");
+  try {
+    const selection = await db.recordMenuSelection({ userId: owner.userId, guestSessionId: owner.guestSessionId, recommendationId, recipeId, idempotencyKey, recipeSnapshot: recipe, snapshot: recipe, realizedSavings: recipe.estimatedSavings });
+    if (selection.outcome === "conflict") throw new HttpError(409, "이미 선택한 추천입니다.", { selection });
+    sendJson(response, selection.outcome === "replayed" ? 200 : 201, { selectionId: selection.id, selection, recipeSnapshot: selection.recipeSnapshot || selection.snapshot || recipe });
+  } catch (error) {
+    if (error.code === "DUPLICATE_SELECTION") throw new HttpError(409, "이미 선택한 추천입니다.", { selection: error.selection });
+    throw error;
+  }
+}
+
 async function handleRegister(request, response) {
   const payload = asObject(await readJson(request, 16_000));
+  const guest = await resolveGuestSession(request);
+  if (guest) assertGuestCsrf(request, guest);
+  const guestMergeIdempotencyKey = guest ? normalizeShortText(payload.guestMergeIdempotencyKey, 160) : null;
+  if (guest && !guestMergeIdempotencyKey) throw new HttpError(400, "게스트 병합 요청 키가 필요합니다.");
   const email = normalizeEmail(payload.email);
   const displayName = normalizeDisplayName(payload.displayName, email);
   const password = String(payload.password || "");
@@ -351,16 +480,13 @@ async function handleRegister(request, response) {
       });
 
   const session = await createUserSession(user, request);
-  sendJson(
-    response,
-    201,
-    {
-      authenticated: true,
-      user,
-      csrfToken: session.csrfToken
-    },
-    { "Set-Cookie": session.cookie }
-  );
+  let merge = null;
+  if (guest) {
+    merge = await db.mergeGuestIntoAccount({ guestSessionId: guest.id, userId: user.id, idempotencyKey: guestMergeIdempotencyKey });
+  }
+  const mergeComplete = !guest || ["completed", "succeeded"].includes(merge?.status);
+  const cookies = [session.cookie, ...(guest && mergeComplete ? [clearGuestCookie(request)] : [])];
+  sendJson(response, 201, { authenticated: true, user, csrfToken: session.csrfToken, merge }, { "Set-Cookie": cookies });
 }
 
 async function handleLogin(request, response) {
@@ -720,273 +846,109 @@ function clearAdminOverviewCache() {
 }
 
 async function handlePantryList(request, response) {
-  const auth = await requireSession(request);
-  const items = typeof db.listPantryItemsByUserId === "function"
-    ? await db.listPantryItemsByUserId(auth.user.id)
-    : await db.get((data) =>
-        data.pantryItems
-          .filter((item) => item.userId === auth.user.id)
-          .sort(comparePantryItems)
-      );
-
+  const owner = await requireRequestOwner(request, { requireCsrf: false });
+  const items = typeof db.listPantryItems === "function"
+    ? await db.listPantryItems(owner)
+    : typeof db.listPantryItemsByUserId === "function" && owner.userId
+      ? await db.listPantryItemsByUserId(owner.userId)
+      : await db.get((data) => data.pantryItems.filter((item) => owner.userId ? item.userId === owner.userId : item.guestSessionId === owner.guestSessionId).sort(comparePantryItems));
   sendJson(response, 200, { items });
 }
 
 async function handlePantryCreate(request, response) {
-  const auth = await requireSession(request, { requireCsrf: true });
+  const owner = await requireRequestOwner(request);
   const payload = asObject(await readJson(request, 16_000));
   const itemInput = normalizePantryInput(payload, { partial: false });
-  const now = new Date().toISOString();
-
-  const record = {
-    id: randomUUID(),
-    userId: auth.user.id,
-    name: itemInput.name,
-    quantity: itemInput.quantity,
-    expiresAt: itemInput.expiresAt,
-    createdAt: now,
-    updatedAt: now
-  };
-
-  const item = typeof db.insertPantryItem === "function"
-    ? await db.insertPantryItem(record)
-    : await db.mutate((data) => {
-        data.pantryItems.push(record);
-        return record;
-      });
-
+  const existing = typeof db.listPantryItems === "function" ? await db.listPantryItems(owner) : await db.get((data) => data.pantryItems.filter((item) => owner.userId ? item.userId === owner.userId : item.guestSessionId === owner.guestSessionId));
+  if (!owner.userId && existing.length >= 100) throw new HttpError(429, "게스트 재료는 최대 100개까지 저장할 수 있습니다.");
+  const now = new Date().toISOString(); const id = randomUUID();
+  const record = { id, stableId: normalizeShortText(payload.stableId, 100) || id, ownerId: owner.userId || owner.guestSessionId, userId: owner.userId, guestSessionId: owner.guestSessionId, ...itemInput, createdAt: now, updatedAt: now };
+  const item = typeof db.insertPantryItem === "function" ? await db.insertPantryItem(record) : await db.mutate((data) => { data.pantryItems.push(record); return record; });
   sendJson(response, 201, { item });
 }
 
 async function handlePantryUpdate(request, response, itemId) {
-  const auth = await requireSession(request, { requireCsrf: true });
-  const payload = asObject(await readJson(request, 16_000));
-  const itemInput = normalizePantryInput(payload, { partial: true });
-  const now = new Date().toISOString();
-
-  const item = typeof db.updatePantryItem === "function"
-    ? await db.updatePantryItem(auth.user.id, itemId, { ...itemInput, updatedAt: now })
-    : await db.mutate((data) => {
-        const record = data.pantryItems.find((entry) => entry.id === itemId && entry.userId === auth.user.id);
-        if (!record) {
-          throw new HttpError(404, "재료를 찾을 수 없습니다.");
-        }
-
-        for (const [key, value] of Object.entries(itemInput)) {
-          record[key] = value;
-        }
-        record.updatedAt = now;
-        return record;
-      });
-
-  if (!item) {
-    throw new HttpError(404, "재료를 찾을 수 없습니다.");
-  }
-
-  sendJson(response, 200, { item });
+  const owner = await requireRequestOwner(request); const payload = asObject(await readJson(request, 16_000)); const itemInput = normalizePantryInput(payload, { partial: true }); const updatedAt = new Date().toISOString();
+  const item = typeof db.updateOwnedPantryItem === "function" ? await db.updateOwnedPantryItem(owner, itemId, { ...itemInput, updatedAt })
+    : typeof db.updatePantryItem === "function" && owner.userId ? await db.updatePantryItem(owner.userId, itemId, { ...itemInput, updatedAt })
+    : await db.mutate((data) => { const row=data.pantryItems.find((entry)=>entry.id===itemId&&(owner.userId?entry.userId===owner.userId:entry.guestSessionId===owner.guestSessionId)); if(!row)return null; Object.assign(row,itemInput,{updatedAt}); return row; });
+  if (!item) throw new HttpError(404, "재료를 찾을 수 없습니다."); sendJson(response, 200, { item });
 }
 
 async function handlePantryDelete(request, response, itemId) {
-  const auth = await requireSession(request, { requireCsrf: true });
-  const deleted = typeof db.deletePantryItem === "function"
-    ? await db.deletePantryItem(auth.user.id, itemId)
-    : await db.mutate((data) => {
-        const before = data.pantryItems.length;
-        data.pantryItems = data.pantryItems.filter((entry) => !(entry.id === itemId && entry.userId === auth.user.id));
-        return before !== data.pantryItems.length;
-      });
-
-  if (!deleted) {
-    throw new HttpError(404, "재료를 찾을 수 없습니다.");
-  }
-
-  sendJson(response, 200, { ok: true });
+  const owner = await requireRequestOwner(request);
+  const deleted = typeof db.deleteOwnedPantryItem === "function" ? await db.deleteOwnedPantryItem(owner,itemId)
+    : typeof db.deletePantryItem === "function" && owner.userId ? await db.deletePantryItem(owner.userId,itemId)
+    : await db.mutate((data)=>{const before=data.pantryItems.length; data.pantryItems=data.pantryItems.filter((entry)=>!(entry.id===itemId&&(owner.userId?entry.userId===owner.userId:entry.guestSessionId===owner.guestSessionId))); return before!==data.pantryItems.length;});
+  if (!deleted) throw new HttpError(404, "재료를 찾을 수 없습니다."); sendJson(response, 200, { ok: true });
 }
+
+async function handleShortcutList(request,response){ const owner=await requireRequestOwner(request,{requireCsrf:false}); const shortcuts=typeof db.listShortcuts==='function'?await db.listShortcuts(owner):await db.get((data)=>data.userShortcuts.filter((row)=>owner.userId?row.userId===owner.userId:row.guestSessionId===owner.guestSessionId)); sendJson(response,200,{shortcuts}); }
+async function handleShortcutCreate(request,response){ const owner=await requireRequestOwner(request); const payload=asObject(await readJson(request,8_000)); const shortcutId=normalizeShortText(payload.shortcutId,100)||randomUUID(); const shortcutSnapshot=asObject(payload.shortcutSnapshot); if(!Object.keys(shortcutSnapshot).length) throw new HttpError(400,"바로가기 정보가 필요합니다."); const existing=typeof db.listShortcuts==='function'?await db.listShortcuts(owner):await db.get((data)=>data.userShortcuts.filter((row)=>owner.userId?row.userId===owner.userId:row.guestSessionId===owner.guestSessionId)); if(!owner.userId&&existing.length>=50) throw new HttpError(429,"게스트 바로가기는 최대 50개까지 저장할 수 있습니다."); const now=new Date().toISOString(); const shortcut=typeof db.recordShortcut==='function'?await db.recordShortcut({...owner,shortcutId,shortcutSnapshot,createdAt:now,updatedAt:now}):await db.mutate((data)=>{const row={id:randomUUID(),ownerId:owner.userId||owner.guestSessionId,userId:owner.userId,guestSessionId:owner.guestSessionId,shortcutId,shortcutSnapshot,createdAt:now,updatedAt:now}; data.userShortcuts.push(row); return row;}); sendJson(response,201,{shortcut}); }
+async function handleShortcutDelete(request,response,shortcutId){ const owner=await requireRequestOwner(request); const deleted=typeof db.deleteShortcut==='function'?await db.deleteShortcut({...owner,shortcutId}):await db.mutate((data)=>{const before=data.userShortcuts.length; data.userShortcuts=data.userShortcuts.filter((row)=>!((row.shortcutId===shortcutId||row.id===shortcutId)&&(owner.userId?row.userId===owner.userId:row.guestSessionId===owner.guestSessionId))); return before!==data.userShortcuts.length;}); if(!deleted)throw new HttpError(404,"바로가기를 찾을 수 없습니다."); sendJson(response,200,{ok:true}); }
 
 async function handleRecommendationHistory(request, response, url) {
   const auth = await requireSession(request);
   const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
-  const result = typeof db.getRecommendationHistory === "function"
-    ? await db.getRecommendationHistory(auth.user.id, limit)
-    : await db.get((data) => {
-        const logs = data.recommendationLogs
-          .filter((log) => log.userId === auth.user.id)
-          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-          .slice(0, limit)
-          .map((log) => ({
-            id: log.id,
-            createdAt: log.createdAt,
-            source: log.source,
-            inputIngredients: log.inputIngredients,
-            summary: log.recommendation?.summary || "",
-            bestSavings: log.recommendation?.totals?.bestSavings || 0,
-            recipeNames: (log.recommendation?.recipes || []).map((recipe) => recipe.name).slice(0, 3)
-          }));
-
-        const totalSavings = data.savingsLogs
-          .filter((log) => log.userId === auth.user.id)
-          .reduce((sum, log) => sum + Number(log.estimatedSavings || 0), 0);
-
-        return {
-          logs,
-          totalSavings
-        };
-      });
-
-  sendJson(response, 200, result);
+  const selections = typeof db.listMenuSelections === "function"
+    ? await db.listMenuSelections({ userId: auth.user.id, limit })
+    : await db.get((data) => (data.menuSelections || []).filter((row) => row.userId === auth.user.id).slice(-limit).reverse());
+  const totalSavings = typeof db.getRealizedSavingsTotal === "function"
+    ? await db.getRealizedSavingsTotal({ userId: auth.user.id })
+    : selections.reduce((sum, row) => sum + Number(row.realizedSavings || 0), 0);
+  sendJson(response, 200, { logs: selections, selections, totalSavings, legacySavingsExcluded: true });
 }
 
 async function handleRecommend(request, response) {
-  const auth = await resolveSession(request);
-  if (auth) {
-    assertCsrf(request, auth.session);
-  }
-
+  const owner = await requireRequestOwner(request);
   const payload = asObject(await readJson(request));
-  const anonymousId = auth ? `user-${auth.user.id}` : normalizeAnonymousId(payload.anonymousId);
   const ingredients = normalizeIngredients(payload.ingredients, payload.ingredientsText);
   const preferences = normalizePreferences(payload.preferences);
-  const pantryItems = auth
+  const pantryItems = owner.auth
     ? typeof db.listPantryItemsByUserId === "function"
-      ? await db.listPantryItemsByUserId(auth.user.id)
-      : await db.get((data) =>
-          data.pantryItems
-            .filter((item) => item.userId === auth.user.id)
-            .sort(comparePantryItems)
-        )
+      ? await db.listPantryItemsByUserId(owner.userId)
+      : await db.get((data) => data.pantryItems.filter((item) => item.userId === owner.userId).sort(comparePantryItems))
     : [];
   const ingredientCheck = buildIngredientCheck({ inputIngredients: ingredients, pantryItems });
   const recommendationIngredients = ingredientCheck.recommendationIngredients;
-
-  if (recommendationIngredients.length === 0) {
-    throw new HttpError(400, "재료를 한 가지 이상 입력해 주세요.");
-  }
+  if (recommendationIngredients.length === 0) throw new HttpError(400, "재료를 한 가지 이상 입력해 주세요.");
 
   let source = "fallback";
   let recommendation = null;
   let warning = null;
-
   try {
-    recommendation = await createAiRecommendation({
-      ingredients: recommendationIngredients,
-      preferences,
-      anonymousId,
-      ingredientCheck
-    });
-    if (recommendation) {
-      source = "groq";
-    }
+    recommendation = await createAiRecommendation({ ingredients: recommendationIngredients, preferences, anonymousId: owner.userId ? `user-${owner.userId}` : `guest-${owner.guestSessionId}`, ingredientCheck });
+    if (recommendation) source = "groq";
   } catch (error) {
     warning = error.message;
     console.warn("Groq recommendation failed. Using fallback.", error.message);
   }
-
-  if (!recommendation) {
-    recommendation = createFallbackRecommendation(recommendationIngredients, preferences);
-  }
-
-  const normalized = {
-    ...normalizeRecommendation(recommendation, recommendationIngredients),
-    ingredientCheck
-  };
-  const localLogging = await logRecommendationLocally({
-    auth,
-    anonymousId,
-    inputIngredients: recommendationIngredients,
-    preferences,
-    recommendation: normalized,
-    source
-  });
-  const supabaseLogging = db.provider === "supabase"
-    ? { enabled: true, stored: localLogging.stored, primary: true }
-    : await logRecommendationToSupabase({
-        userId: auth?.user.id || null,
-        anonymousId,
-        inputIngredients: recommendationIngredients,
-        preferences,
-        recommendation: normalized,
-        source
-      });
-
-  sendJson(response, 200, {
-    ...normalized,
-    meta: {
-      source,
-      warning,
-      ingredientCheck,
-      logging: {
-        stored: Boolean(supabaseLogging.stored || localLogging.stored),
-        supabase: supabaseLogging,
-        local: localLogging
-      }
-    }
-  });
+  if (!recommendation) recommendation = createFallbackRecommendation(recommendationIngredients, preferences);
+  const recommendationId = randomUUID();
+  const normalizedBase = normalizeRecommendation(recommendation, recommendationIngredients);
+  const normalized = { ...normalizedBase, recipes: normalizedBase.recipes.map((recipe) => ({ ...recipe, id: randomUUID() })), ingredientCheck };
+  const exposure = await db.recordRecommendationExposure({ userId: owner.userId, guestSessionId: owner.guestSessionId, recommendationId, inputIngredients: recommendationIngredients, preferences, snapshot: normalized, recommendation: normalized, source, createdAt: new Date().toISOString() });
+  sendJson(response, 200, { recommendationId, ...normalized, meta: { source, warning, ingredientCheck, logging: { stored: Boolean(exposure) } } });
 }
 
 function buildIngredientCheck({ inputIngredients, pantryItems }) {
   const submittedIngredients = uniqueValues(inputIngredients || []).slice(0, 15);
-  const databaseIngredients = (Array.isArray(pantryItems) ? pantryItems : [])
-    .map((item) => ({
-      name: normalizeShortText(item.name, 80),
-      quantity: normalizeShortText(item.quantity, 40),
-      expiresAt: item.expiresAt || ""
-    }))
-    .filter((item) => item.name)
-    .slice(0, 50);
+  const databaseIngredients = (Array.isArray(pantryItems) ? pantryItems : []).map((item) => ({ name: normalizeShortText(item.name, 80), quantity: normalizeShortText(item.quantity, 40), expiresAt: item.expiresAt || "" })).filter((item) => item.name).slice(0, 50);
   const pantryByKey = new Map();
-
-  for (const item of databaseIngredients) {
-    const key = ingredientKey(item.name);
-    if (key && !pantryByKey.has(key)) {
-      pantryByKey.set(key, item);
-    }
-  }
-
+  for (const item of databaseIngredients) { const key = ingredientKey(item.name); if (key && !pantryByKey.has(key)) pantryByKey.set(key, item); }
   const submittedKeys = new Set();
   const verifiedMatches = [];
   const unverifiedInputIngredients = [];
-
   for (const ingredient of submittedIngredients) {
-    const key = ingredientKey(ingredient);
-    if (key) {
-      submittedKeys.add(key);
-    }
-
+    const key = ingredientKey(ingredient); if (key) submittedKeys.add(key);
     const match = pantryByKey.get(key);
-    if (match) {
-      verifiedMatches.push({
-        input: ingredient,
-        name: match.name,
-        quantity: match.quantity,
-        expiresAt: match.expiresAt
-      });
-    } else {
-      unverifiedInputIngredients.push(ingredient);
-    }
+    if (match) verifiedMatches.push({ input: ingredient, name: match.name, quantity: match.quantity, expiresAt: match.expiresAt });
+    else unverifiedInputIngredients.push(ingredient);
   }
-
   const databaseOnlyIngredients = databaseIngredients.filter((item) => !submittedKeys.has(ingredientKey(item.name)));
   const verifiedIngredients = uniqueValues(verifiedMatches.map((item) => item.name));
-  const recommendationIngredients = uniqueValues([
-    ...verifiedIngredients,
-    ...unverifiedInputIngredients,
-    ...databaseOnlyIngredients.map((item) => item.name)
-  ]).slice(0, 20);
-  const summary = databaseIngredients.length
-    ? `DB 확인 ${verifiedIngredients.length}개, 입력만 ${unverifiedInputIngredients.length}개, DB 추가 ${databaseOnlyIngredients.length}개`
-    : `입력 재료 ${submittedIngredients.length}개 기준`;
-
-  return {
-    databaseChecked: databaseIngredients.length > 0,
-    submittedIngredients,
-    databaseIngredients: databaseIngredients.slice(0, 20),
-    verifiedIngredients,
-    verifiedMatches,
-    unverifiedInputIngredients,
-    databaseOnlyIngredients: databaseOnlyIngredients.slice(0, 20),
-    recommendationIngredients,
-    summary
-  };
+  const recommendationIngredients = uniqueValues([...verifiedIngredients, ...unverifiedInputIngredients, ...databaseOnlyIngredients.map((item) => item.name)]).slice(0, 20);
+  return { databaseChecked: databaseIngredients.length > 0, submittedIngredients, databaseIngredients: databaseIngredients.slice(0, 20), verifiedIngredients, verifiedMatches, unverifiedInputIngredients, databaseOnlyIngredients: databaseOnlyIngredients.slice(0, 20), recommendationIngredients, summary: databaseIngredients.length ? `DB 확인 ${verifiedIngredients.length}개, 입력만 ${unverifiedInputIngredients.length}개, DB 추가 ${databaseOnlyIngredients.length}개` : `입력 재료 ${submittedIngredients.length}개 기준` };
 }
 
 async function createAiRecommendation({ ingredients, preferences, anonymousId, ingredientCheck }) {
@@ -1153,134 +1115,6 @@ function extractJsonObject(value) {
   }
 
   return "";
-}
-
-async function logRecommendationLocally({
-  auth,
-  anonymousId,
-  inputIngredients,
-  preferences,
-  recommendation,
-  source
-}) {
-  if (!auth && db.provider !== "supabase") {
-    return { enabled: true, stored: false, reason: "login_required" };
-  }
-
-  const now = new Date().toISOString();
-  const recommendationLog = {
-    id: randomUUID(),
-    userId: auth?.user.id || null,
-    anonymousId,
-    inputIngredients,
-    preferences,
-    recommendation,
-    source,
-    createdAt: now
-  };
-  const topRecipe = recommendation.recipes[0];
-  const savingsLog = topRecipe
-    ? {
-        id: randomUUID(),
-        userId: auth?.user.id || null,
-        anonymousId,
-        recipeName: topRecipe.name,
-        estimatedSavings: topRecipe.estimatedSavings,
-        createdAt: now
-      }
-    : null;
-
-  if (typeof db.insertRecommendationEntries === "function") {
-    await db.insertRecommendationEntries({
-      recommendationLog,
-      savingsLog,
-      trimUserId: auth?.user.id || null
-    });
-    return { enabled: true, stored: true };
-  }
-
-  await db.mutate((data) => {
-    data.recommendationLogs.push(recommendationLog);
-
-    if (savingsLog) {
-      data.savingsLogs.push(savingsLog);
-    }
-
-    if (auth) {
-      trimUserLogs(data.recommendationLogs, auth.user.id, 200);
-      trimUserLogs(data.savingsLogs, auth.user.id, 500);
-    }
-  });
-
-  return { enabled: true, stored: true };
-}
-
-async function logRecommendationToSupabase({
-  userId,
-  anonymousId,
-  inputIngredients,
-  preferences,
-  recommendation,
-  source
-}) {
-  const recommendationTable = process.env.SUPABASE_RECOMMENDATION_TABLE || "recommendation_logs";
-  const savingsTable = process.env.SUPABASE_SAVINGS_TABLE || "savings_logs";
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return { enabled: false, stored: false };
-  }
-
-  const headers = {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    "Content-Type": "application/json",
-    Prefer: "return=minimal"
-  };
-  if (SUPABASE_SCHEMA !== "public") {
-    headers["Accept-Profile"] = SUPABASE_SCHEMA;
-    headers["Content-Profile"] = SUPABASE_SCHEMA;
-  }
-
-  try {
-    await supabaseInsert(`${SUPABASE_URL}/rest/v1/${recommendationTable}`, headers, {
-      user_id: userId,
-      anonymous_id: anonymousId,
-      input_ingredients: inputIngredients,
-      preferences,
-      ai_response: {
-        ...recommendation,
-        source
-      }
-    });
-
-    const topRecipe = recommendation.recipes[0];
-    if (topRecipe) {
-      await supabaseInsert(`${SUPABASE_URL}/rest/v1/${savingsTable}`, headers, {
-        user_id: userId,
-        anonymous_id: anonymousId,
-        recipe_name: topRecipe.name,
-        estimated_savings: topRecipe.estimatedSavings
-      });
-    }
-
-    return { enabled: true, stored: true };
-  } catch (error) {
-    console.warn("Supabase logging failed.", error.message);
-    return { enabled: true, stored: false, warning: error.message };
-  }
-}
-
-async function supabaseInsert(url, headers, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Supabase insert failed with ${response.status}`);
-  }
 }
 
 async function ensureAdminAccount() {
@@ -1565,13 +1399,15 @@ function normalizeRecommendation(recommendation, ingredients) {
   };
 }
 
-function serveStatic(pathname, response) {
+function serveStatic(pathname, response, method = "GET") {
   const safePath = pathname === "/" ? "/index.html" : decodeURIComponent(pathname);
   const requestedPath = path.resolve(PUBLIC_DIR, `.${safePath}`);
   const relativePath = path.relative(PUBLIC_DIR, requestedPath);
 
   if (relativePath.startsWith("..") || path.isAbsolute(relativePath) || !existsSync(requestedPath)) {
-    sendJson(response, 404, { error: "Not found" });
+    const body = "<!doctype html><html lang=\"ko\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>페이지 안내</title><link rel=\"stylesheet\" href=\"/styles.css\"><main class=\"app-shell hub-shell\"><h1>페이지가 이동했습니다</h1><p>원하는 영역을 선택해 계속 이용하세요.</p><nav class=\"app-nav\"><a class=\"nav-link\" href=\"/\">냉장고 털기</a><a class=\"nav-link\" href=\"/tools.html\">생활도구</a><a class=\"nav-link\" href=\"/me.html\">내 정보</a></nav></main></html>";
+    response.writeHead(404, { ...securityHeaders(), "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    response.end(method === "HEAD" ? undefined : body);
     return;
   }
 
@@ -1579,9 +1415,10 @@ function serveStatic(pathname, response) {
   response.writeHead(200, {
     ...securityHeaders(),
     "Content-Type": MIME_TYPES[extension] || "application/octet-stream",
-    "Cache-Control": extension === ".html" ? "no-cache" : "public, max-age=300"
+    "Cache-Control": extension === ".html" || safePath === "/sw.js" ? "no-cache" : "public, max-age=300"
   });
-  createReadStream(requestedPath).pipe(response);
+  if (method === "HEAD") response.end();
+  else createReadStream(requestedPath).pipe(response);
 }
 
 function readJson(request, maxBytes = 64_000) {
@@ -1746,6 +1583,14 @@ function clearSessionCookie(request) {
   ]
     .filter(Boolean)
     .join("; ");
+}
+
+function serializeGuestCookie(token, request) {
+  return [`${GUEST_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", "SameSite=Lax", "Path=/", `Max-Age=${Math.floor(GUEST_TTL_MS / 1000)}`, isSecureCookieRequired(request) ? "Secure" : ""].filter(Boolean).join("; ");
+}
+
+function clearGuestCookie(request) {
+  return [`${GUEST_COOKIE_NAME}=`, "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0", isSecureCookieRequired(request) ? "Secure" : ""].filter(Boolean).join("; ");
 }
 
 function isSecureCookieRequired(request) {
@@ -2045,9 +1890,9 @@ function buildAdminUser(user, data) {
   const recommendationLogs = (Array.isArray(data.recommendationLogs) ? data.recommendationLogs : []).filter(
     (log) => log.userId === user.id
   );
-  const savingsTotal = (Array.isArray(data.savingsLogs) ? data.savingsLogs : [])
-    .filter((log) => log.userId === user.id)
-    .reduce((sum, log) => sum + Number(log.estimatedSavings || 0), 0);
+  const savingsTotal = (Array.isArray(data.menuSelections) ? data.menuSelections : [])
+    .filter((selection) => selection.userId === user.id)
+    .reduce((sum, selection) => sum + Number(selection.realizedSavings || selection.estimatedSavings || 0), 0);
 
   return {
     id: user.id,
@@ -2292,10 +2137,6 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function normalizeAnonymousId(value) {
-  const safe = String(value || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
-  return safe || "anonymous-demo-user";
-}
 
 function asString(value, fallback) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;

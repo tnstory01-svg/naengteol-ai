@@ -1,0 +1,25 @@
+{
+  "name": "냉장고 재료 털기",
+  "short_name": "냉장고 털기",
+  "description": "냉장고 재료로 오늘의 집밥 메뉴를 추천받는 자취 생활 도우미",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#16324f",
+  "background_color": "#f5f1e8",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

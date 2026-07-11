@@ -1,135 +1,72 @@
-# DB and Query Optimization Plan
+# 릴리스 후 DB·쿼리 최적화 계획
 
-## Confirmed Decisions
+## 원칙
 
-- Supabase is the operating database target.
-- Anonymous recommendation data should be retained long term.
-- Admin overview can move to pagination instead of returning every user in one response.
-- Start execution with query optimization before broader UI or framework restructuring.
-- Do not place API keys, Supabase service role keys, DB passwords, or other secrets in code.
-- Do not create or edit `.env` files as part of this work.
+- 운영 DB는 Supabase로 유지하고, 현재 로컬 JSON fallback 동작은 보존한다.
+- 최적화 전후의 동일한 시나리오에서 요청 수, DB 쿼리 수, 중복 요청 수, 처리 지연시간(p50/p95), 조회 행 수를 측정한다.
+- 측정으로 병목이 확인된 경로만 변경한다. 추정만으로 캐시, 인덱스, RPC, 뷰를 추가하지 않는다.
+- 인증·관리자 데이터의 신선도와 안전성을 성능보다 우선한다. 민감한 인증 데이터를 `localStorage`에 저장하지 않는다.
 
-## Current Bottleneck Proof
+## 1. 기준선 수집 및 실행 여부 결정
 
-- `lib/supabase-db.js` previously loaded every dataset with `select=*` and `limit=SUPABASE_MAX_ROWS` for each `db.get()` and `db.mutate()`.
-- `server.js` calls session resolution and IP block checks before most API handlers, which made small API calls depend on broad DB reads.
-- Pantry and recommendation history handlers only need one user's rows, but the snapshot adapter loaded all tables first.
-- Recommendation logging only needs inserts plus authenticated-user trimming, but the previous path reloaded and diffed all datasets.
+릴리스 버전에서 다음 대표 시나리오를 각각 최소 30회 측정하고, 인증 상태·데이터 규모·페이지 크기를 고정한다.
 
-## Phase 2 Scope Started
+- 초기 페이지 로드 및 health/session/protected-data 요청
+- `GET /api/admin/overview?userPage=1&userPageSize=25`
+- `GET /api/pantry`
+- `GET /api/recommendations?limit=8`
+- 익명 및 인증 사용자의 추천 요청
 
-The query optimization passes add direct Supabase access methods for high-frequency paths while preserving the local JSON DB fallback:
+각 시나리오에 요청별 DB 쿼리 목록, `select=*` 사용 여부, 조회 행 수, p50/p95 지연시간을 기록한다. 기준선 대비 다음 중 하나라도 해당할 때만 해당 경로를 최적화한다.
 
-- user lookup by email
-- active session lookup by token hash
-- session insert/delete
-- IP block lookup by IP hash
-- pantry list/create/update/delete by user
-- recommendation history list by user and limit
-- recommendation and savings log insert
+- p95가 사용자 목표를 초과한다.
+- 동일 사용자 요청에서 중복 요청 또는 중복 쿼리가 1회 이상 발생한다.
+- 한 요청이 실제 필요 행보다 2배 초과하는 행을 읽는다.
+- 단일 API 요청이 불필요한 전체 테이블 조회를 발생시킨다.
 
-- admin overview user pagination and page-level admin counts
-- admin user status/role update
-- admin IP block/unblock
-- registration user insert
-- admin bootstrap direct upsert
+기준선과 판정 결과가 없으면 구현을 진행하지 않는다.
 
-The fallback snapshot methods remain available for local JSON DB compatibility and any lower-frequency paths not yet split into repository methods.
+## 2. 확인된 병목의 최소 수정
 
-## Remaining Work
+기준선에서 병목으로 판정된 경로부터, 필요한 열·사용자·페이지·limit만 조회하도록 쿼리를 좁힌다. 관리자 목록은 페이지네이션과 명시적 집계를 우선한다. 각 변경은 동일한 시나리오로 재측정한다.
 
-### Next Work Order
+- 성공 기준: 요청 수와 쿼리 수가 증가하지 않고, p95 지연시간이 기준선보다 20% 이상 개선되거나 과다 조회 행이 50% 이상 감소한다.
+- 실패 기준: p95가 10% 이상 악화되거나, 인증·권한·결과 정합성 회귀가 1건이라도 발생한다. 실패하면 해당 변경을 즉시 되돌린다.
 
-Start with measurement, not another refactor. The next session should first prove whether the two query-optimization commits actually reduced Supabase traffic and then decide if caching can be added without hiding stale auth/admin data.
+## 3. 안전한 단기 메모리 캐시
 
-Use this command prompt for the next coding session:
+쿼리 개선 후에도 동일한 사용자 시나리오의 중복 요청이 남고 기준선 대비 p95 개선 여지가 있을 때만 프로세스 수명 내 인메모리 캐시를 도입한다.
 
-```txt
-Continue from commit 6d75a8e on main.
+- health: 최대 30초
+- session: 현재 페이지 수명 동안만, 사용자 식별자와 함께 보관
+- pantry·recommendations: 사용자별 최대 30초, 서버 재시작 시 폐기
+- pantry 생성·수정·삭제 성공 후 pantry 캐시 무효화
+- 추천 성공 후 recommendations 캐시 무효화
+- 로그아웃 또는 모든 401 응답에서 사용자 범위 캐시 전부 삭제
+- 토큰, 비밀번호, 개인정보가 포함된 값은 `localStorage`·`sessionStorage`에 저장하지 않는다.
 
-Goal: close the query-optimization measurement gap and begin Phase 3 caching only after evidence is collected.
+캐시 전후 동일 시나리오에서 stale 응답, 사용자 간 데이터 혼재, 무효화 누락을 확인한다. 캐시 적중률이 20% 미만이거나 p95가 10% 이상 개선되지 않으면 캐시를 제거한다.
 
-Constraints:
-- Do not edit or create .env files.
-- Do not add secrets to code or docs.
-- Do not run npm install/delete.
-- Keep Supabase as the operating DB target and local JSON DB as fallback.
-- Preserve current multi-page HTML structure; do not introduce React/Vue/Svelte/Vite yet.
+## 4. 인덱스·RPC·뷰 검토
 
-First task:
-1. Add a lightweight measurement plan or debug-only instrumentation for these paths:
-   - initial page load health/session/protected-data requests
-   - /api/admin/overview?userPage=1&userPageSize=25
-   - /api/pantry
-   - /api/recommendations?limit=8
-   - /api/recommend anonymous and authenticated flows
-2. Capture before/after-style evidence using local mock Supabase or Supabase REST logs without exposing secrets.
-3. Record request count, duplicate request count, row count, and any select=* usage.
+캐시 적용 후에도 기준선 목표를 충족하지 못하는 쿼리만 대상으로 실행 계획과 실제 실행시간을 수집한다. 실행 계획에서 병목이 확인될 때만 다음을 검토한다.
 
-Then do:
-4. Remove or fold the legacy standalone `logRecommendationToSupabase` helper into the Supabase database adapter if it is redundant.
-5. Design and implement the smallest safe Phase 3 client memory cache:
-   - cache /health briefly
-   - cache /api/auth/session only during one page lifecycle
-   - cache /api/pantry and /api/recommendations per logged-in user
-   - invalidate pantry after create/update/delete
-   - invalidate recommendations after successful recommend
-   - clear all user-scoped cache on logout or any 401
-6. Do not use localStorage for sensitive authenticated data in this phase.
+- 반복되는 사용자·날짜 조건에 대한 인덱스
+- 여러 집계·페이지 조회의 반복 비용이 입증된 RPC 또는 뷰
 
-Validation:
-- node --check server.js
-- node --check lib/supabase-db.js
-- node --check public/app.js
-- local server smoke for anonymous recommend
-- local admin login + /api/admin/overview smoke
-- mock Supabase probe proving no startup select=* and expected targeted request counts
-- git diff --check
+추가 객체는 변경 전후 실행 계획, p95, 읽은 행 수, 쓰기 비용을 함께 기록한다. 계획상 유의미한 개선이 없거나 쓰기 지연·운영 복잡도가 증가하면 적용하지 않고 되돌린다.
 
-Commit and push the completed phase to origin/main.
-```
+## 5. 구조 변경은 보류
 
-### Phase 2 Follow-up
+React/Vue/Svelte/Vite 등 프레임워크 마이그레이션은 이 계획의 범위에서 제외한다. 쿼리·캐시 최적화 후에도 측정된 요청량과 유지보수 비용이 지속적으로 목표를 초과할 때 별도 제안으로 검토한다.
 
-- Add Supabase query timing evidence from REST logs before and after the change.
-- Consider an RPC/view for admin overview if page-level fan-out still costs too much after measuring.
-- Move the remaining legacy standalone recommendation logging helper into the Supabase database adapter or remove it if redundant.
+## 집중 검증 및 롤백 기준
 
-### Phase 3 Cache Design
+각 단계마다 변경 경로에 한정해 요청 수·쿼리 수·p50/p95·행 수와 결과 정합성을 재검증한다. 다음 중 하나면 배포를 중단하고 마지막 정상 버전으로 롤백한다.
 
-- Add short-lived client memory cache for health/session/pantry/history.
-- Invalidate pantry cache after create/update/delete.
-- Invalidate or update history after recommendation success.
-- Clear all user-scoped cache on logout or 401.
+- 인증·권한 오류, 사용자 간 데이터 노출, stale 데이터 무효화 실패
+- 핵심 시나리오 p95 10% 이상 악화
+- 쿼리 수 또는 외부 요청 수 증가
+- 기준선 대비 개선 목표 미달 및 비용 증가
 
-### Phase 4 DB/Index Work
-
-- Keep existing indexes for user/date access paths.
-- Add views/RPC only after measuring admin and history query cost.
-- Decide whether `anonymous_users` should become a real parent table for anonymous recommendation rows.
-
-### Phase 5 Structure Work
-
-Recommended structure, without framework migration:
-
-```txt
-src/
-  pages/
-  services/
-  repositories/
-  cache/
-  lib/
-  utils/
-  config/
-```
-
-Do not introduce React/Vue/Svelte/Vite until request volume and maintainability issues remain after services/repositories/cache separation.
-
-## Verification Checklist
-
-- `node --check server.js`
-- `node --check lib/supabase-db.js`
-- Local server smoke through `/health`
-- Auth session route returns JSON
-- Recommendation route still works in fallback mode
-- `git diff -- . ':!.env'` confirms no secret or `.env` changes
+검증 결과에는 시나리오, 표본 수, 기준선·변경 후 수치, 판정(go/no-go), 롤백 여부를 남긴다.

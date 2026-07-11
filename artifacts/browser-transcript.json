@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "surface": "web",
+  "tool": "GJC Browser/Puppeteer",
+  "baseUrl": "http://127.0.0.1:3220",
+  "actions": [
+    {
+      "type": "goto",
+      "url": "http://127.0.0.1:3220/",
+      "timestamp": 1
+    },
+    {
+      "type": "fill",
+      "selector": "#ingredientsText",
+      "value": "계란, 김치, 밥",
+      "timestamp": 2
+    },
+    {
+      "type": "click",
+      "selector": "#recommendButton",
+      "timestamp": 3
+    },
+    {
+      "type": "observe",
+      "selector": "#recipesContainer",
+      "timestamp": 4
+    },
+    {
+      "type": "click",
+      "selector": ".choose-recipe",
+      "timestamp": 5
+    },
+    {
+      "type": "screenshot",
+      "selector": "body",
+      "path": "artifacts/pwa-installable.png",
+      "timestamp": 6
+    },
+    {
+      "type": "goto",
+      "url": "http://127.0.0.1:3220/me.html#register",
+      "timestamp": 7
+    },
+    {
+      "type": "fill",
+      "selector": "#registerEmail",
+      "value": "capture-<timestamp>@example.com",
+      "timestamp": 8
+    },
+    {
+      "type": "fill",
+      "selector": "#registerDisplayName",
+      "value": "병합 캡처",
+      "timestamp": 9
+    },
+    {
+      "type": "fill",
+      "selector": "#registerPassword",
+      "value": "<redacted-valid-password>",
+      "timestamp": 10
+    },
+    {
+      "type": "click",
+      "selector": "#registerForm button[type=submit]",
+      "timestamp": 11
+    },
+    {
+      "type": "observe",
+      "selector": "#mergeSummary",
+      "timestamp": 12
+    },
+    {
+      "type": "screenshot",
+      "selector": "body",
+      "path": "artifacts/account-merge.png",
+      "timestamp": 13
+    },
+    {
+      "type": "observe",
+      "selector": "#mergeSteps",
+      "timestamp": 14
+    },
+    {
+      "type": "assert",
+      "selector": "#retryMergeButton",
+      "timestamp": 15
+    },
+    {
+      "type": "screenshot",
+      "selector": "body",
+      "path": "artifacts/partial-merge.png",
+      "timestamp": 16
+    },
+    {
+      "type": "custom",
+      "target": "Chrome --app standalone window",
+      "timestamp": 17
+    },
+    {
+      "type": "screenshot",
+      "selector": "body",
+      "path": "artifacts/standalone-app.png",
+      "timestamp": 18
+    }
+  ],
+  "assertions": [
+    {
+      "selector": ".recipe-card",
+      "status": "passed",
+      "message": "Exactly three cards with reason, owned/missing ingredients, time and savings",
+      "timestamp": 100
+    },
+    {
+      "selector": ".selection-status",
+      "status": "passed",
+      "message": "Explicit selection persisted and displayed realized savings",
+      "timestamp": 101
+    },
+    {
+      "selector": ".app-nav a",
+      "status": "passed",
+      "message": "Exactly three primary entries at 360x800 and 390x844",
+      "timestamp": 102
+    },
+    {
+      "selector": "#mergeSteps li",
+      "status": "passed",
+      "message": "pantryItems, userShortcuts and menuSelections merge steps completed",
+      "timestamp": 103
+    },
+    {
+      "selector": "html",
+      "status": "passed",
+      "message": "No horizontal overflow and 200 percent text zoom remained usable",
+      "timestamp": 104
+    },
+    {
+      "selector": "link[rel=manifest]",
+      "status": "passed",
+      "message": "Standalone Korean manifest and active service worker; CacheStorage empty",
+      "timestamp": 105
+    },
+    {
+      "selector": "#mergeSteps",
+      "status": "passed",
+      "message": "Partial state rendered completed and RETRYABLE_STEP_FAILURE rows",
+      "timestamp": 106
+    },
+    {
+      "selector": "#retryMergeButton",
+      "status": "passed",
+      "message": "Incomplete merge exposes visible 병합 다시 시도 action",
+      "timestamp": 107
+    },
+    {
+      "selector": "html",
+      "status": "passed",
+      "message": "Chrome --app relaunch reported display-mode standalone, secure context, active service worker, and empty CacheStorage",
+      "timestamp": 108
+    }
+  ],
+  "screenshots": [
+    "artifacts/pwa-installable.png",
+    "artifacts/account-merge.png",
+    "artifacts/me-mobile.png",
+    "artifacts/partial-merge.png",
+    "artifacts/standalone-app.png"
+  ]
+}

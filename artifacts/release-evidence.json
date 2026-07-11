@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "kind": "release-frozen-change-set",
+  "files": [
+    {
+      "path": "server.js",
+      "sha256": "a9e6ea4aa21db2b6163a80299490b63f248607ea9db53ecc1bdc8787de442a55",
+      "bytes": 80461
+    },
+    {
+      "path": "lib/local-db.js",
+      "sha256": "7df4432dbb84cc8305043d2674e21db262c0371b9c6c0a43ffe1af9d5cf4bbd5",
+      "bytes": 11906
+    },
+    {
+      "path": "lib/supabase-db.js",
+      "sha256": "1040441f802eeb13ad9540b913eb72793f5ec8f65ab179366c8fe4334cec7d2e",
+      "bytes": 34661
+    },
+    {
+      "path": "supabase/schema.sql",
+      "sha256": "e1f18a5bb10bd2112db156dc8bde819f7548dd2e09b4618405d58ff51eb967df",
+      "bytes": 22676
+    },
+    {
+      "path": "supabase/migrations/202607110001_guest_selection_merge.sql",
+      "sha256": "8960f3091aa045005b299373e0b2823070286350f18d2acaafddb41fb782b1bc",
+      "bytes": 18699
+    },
+    {
+      "path": "public/index.html",
+      "sha256": "3e25d6c07ad0469ce563b8a54aa3ec4a6380d7bdfb927f5e425da14c7a36ab4e",
+      "bytes": 11033
+    },
+    {
+      "path": "public/app.js",
+      "sha256": "550e2e19a2e088538c233361709dc45ac568e7f44a35ef59422b9e68e983dc4d",
+      "bytes": 68549
+    },
+    {
+      "path": "public/styles.css",
+      "sha256": "afa0fd0ff6f6ca8bf21fecf2770efb48940548a2e1a0e83969d7593819444632",
+      "bytes": 28792
+    },
+    {
+      "path": "public/tools.html",
+      "sha256": "ed9225c54bf2b51825309940f3f0192f88eac96388e27873a5da452dcddc8655",
+      "bytes": 1433
+    },
+    {
+      "path": "public/me.html",
+      "sha256": "0a475c015e678a2bc78c9967a158124e490a6b061c07e2f796a746b7af7bb37b",
+      "bytes": 3515
+    },
+    {
+      "path": "public/me.js",
+      "sha256": "a32c0d01e78640ad757a415cd8cae697d99d7daf1b7e3b0d78537f27b60ccc00",
+      "bytes": 9147
+    },
+    {
+      "path": "public/manifest.webmanifest",
+      "sha256": "be65cc18f7dd53d2b496b60fb1f7ee875df170f54c27cb8bf914a331c13a4a1b",
+      "bytes": 610
+    },
+    {
+      "path": "public/sw.js",
+      "sha256": "7b410671a1b97c3338d912fa489dc7e6bf6c615af507c05e80209b27b7769e45",
+      "bytes": 160
+    },
+    {
+      "path": "public/icon-192.png",
+      "sha256": "6c8ab868620a8fbc2ddea53a68e4fcba10e28eb2d97b8d98b3d5dc7cf68d1418",
+      "bytes": 2781
+    },
+    {
+      "path": "public/icon-512.png",
+      "sha256": "0b44b48929375d7cf83d3ce3b4901d768b7df2aff9ebbc66b6a3939c2a5ecab0",
+      "bytes": 8979
+    },
+    {
+      "path": "tests/local-db-contract.test.js",
+      "sha256": "7053677b1e21cbae055f81342ce93fb8b2f61dba5909efc57812a0cbed4fe8da",
+      "bytes": 7336
+    },
+    {
+      "path": "tests/supabase-db-contract.test.js",
+      "sha256": "3a7636684170d098942185caf8a85c76c8caa4c19d7f5eb85a442c65c64b4588",
+      "bytes": 5143
+    },
+    {
+      "path": "tests/schema-contract.test.js",
+      "sha256": "e64e22671e5d193efa5a4ab69bafb342466b0d7b75650b2a48ea3017439a723c",
+      "bytes": 1913
+    },
+    {
+      "path": "tests/api-contract.test.js",
+      "sha256": "88ea0dca698193f2a9ceadbb12a911b9d718b33346a7d549998463e81343b2c2",
+      "bytes": 16802
+    },
+    {
+      "path": "tests/pwa-contract.test.js",
+      "sha256": "4c78b05dedb19006ac93ede39c0a9c385891fb53bd3327fdb3c41f97996a6169",
+      "bytes": 4720
+    },
+    {
+      "path": "tests/mobile-flow.spec.js",
+      "sha256": "df302b084d9e205613d620bb4eac0b16de5a719427e8fdb3f7248ac2641d1821",
+      "bytes": 1611
+    },
+    {
+      "path": "playwright.config.js",
+      "sha256": "dd388c6cd03bcaab884d5cc2f1a5ff3cfbf0762c8468cdd0c28ed06857166c2c",
+      "bytes": 872
+    },
+    {
+      "path": "package.json",
+      "sha256": "834b02d3d04ffd1a7cce97002d0f9401ef521672fd6f6ac61b103f76a64d7783",
+      "bytes": 602
+    }
+  ],
+  "verification": [
+    "node --check server.js, public/app.js, public/me.js, lib/local-db.js, lib/supabase-db.js",
+    "npm test: 16 passed",
+    "npm run test:api: 13 passed",
+    "npm run test:pwa: 4 passed",
+    "Chromium: guest selection, complete+partial merge UI, accessibility/mobile, installability and true Chrome --app standalone relaunch",
+    "Performance: five throttled runs and 50-call concurrency report passed"
+  ],
+  "liveArtifacts": [
+    "artifacts/browser-transcript.json",
+    "artifacts/performance-report.json",
+    "artifacts/accessibility-report.json",
+    "artifacts/security-test-report.json",
+    "artifacts/pwa-installable.png",
+    "artifacts/account-merge.png",
+    "artifacts/partial-merge.png",
+    "artifacts/me-mobile.png",
+    "artifacts/standalone-app.png"
+  ],
+  "cleaner": {
+    "status": "passed",
+    "blockingFindings": [],
+    "advisoryFindings": [],
+    "evidence": "AI SLOP CLEANUP REPORT final post-fix rerun: zero blocking findings across all changed source, SQL, PWA and test files; the sole detector match was the grounded server startup log."
+  },
+  "sealed": true,
+  "seal": "post-cleaner-post-full-rerun"
+}

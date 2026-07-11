@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>생활도구 | 냉털</title><link rel="stylesheet" href="/styles.css"></head>
+<body><header class="site-header"><nav class="app-nav" aria-label="주요 탐색"><a class="nav-link" href="/">냉장고 털기</a><a class="nav-link active" href="/tools.html" aria-current="page">생활도구</a><a class="nav-link" href="/me.html">내 정보</a></nav></header>
+<main class="app-shell hub-shell"><h1>생활도구</h1><p class="lead-copy">장보기와 생활 메모는 이 브라우저에만 안전하게 저장됩니다.</p><p id="toolsStatus" role="status" aria-live="polite"></p>
+<nav class="tool-jump" aria-label="생활도구 바로가기"><a class="primary-button link-button" href="#shopping">장바구니</a><a class="secondary-button link-button" href="#notes">메모</a></nav>
+<section class="hub-grid tools-grid">
+<article id="shopping" class="panel"><h2>장바구니</h2><form id="shoppingForm" class="hub-form"><label for="shoppingName">필요한 물건</label><input id="shoppingName" name="name" maxlength="80" required placeholder="예: 달걀"><button class="primary-button" type="submit">추가</button></form><p id="shoppingEmpty" class="muted-copy">아직 담은 물건이 없습니다.</p><ul id="shoppingList" class="tool-list"></ul></article>
+<article id="notes" class="panel"><h2>생활 메모</h2><form id="noteForm" class="hub-form"><label for="noteTitle">제목</label><input id="noteTitle" name="title" maxlength="80" required><label for="noteBody">내용</label><textarea id="noteBody" name="body" rows="5" maxlength="2000"></textarea><button class="primary-button" type="submit">메모 저장</button></form><p id="noteEmpty" class="muted-copy">아직 저장한 메모가 없습니다.</p><ul id="noteList" class="tool-list"></ul></article>
+<article id="resources" class="panel"><h2>지역·생활 정보</h2><p>기존 놀곳추천, 생활 꿀팁, 문의 기능은 새 구조에 맞춰 정리 중입니다. 장보기와 메모는 위에서 바로 사용할 수 있습니다.</p></article>
+</section></main><script type="module" src="/tools.js"></script></body></html>

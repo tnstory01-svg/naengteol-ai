@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>내 정보 | 냉털</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="app-nav" aria-label="주요 탐색">
+      <a class="nav-link" href="/">냉장고 털기</a>
+      <a class="nav-link" href="/tools.html">생활도구</a>
+      <a class="nav-link active" href="/me.html" aria-current="page">내 정보</a>
+    </nav>
+  </header>
+  <main class="app-shell hub-shell">
+    <h1>내 정보</h1>
+    <p class="lead-copy">계정, 저장 재료, 실제로 선택한 메뉴를 한 곳에서 관리하세요.</p>
+    <p id="hubStatus" class="status-message" role="status" aria-live="polite"></p>
+
+    <section class="panel" id="authPanel" aria-labelledby="authTitle">
+      <h2 id="authTitle">계정</h2>
+      <div class="hub-auth-actions">
+        <button class="primary-button" type="button" id="showLogin">로그인</button>
+        <button class="secondary-button" type="button" id="showRegister">회원가입</button>
+      </div>
+      <form id="loginForm" class="hub-form" novalidate>
+        <h3>로그인</h3>
+        <label for="loginEmail">이메일</label>
+        <input id="loginEmail" name="email" type="email" autocomplete="email" required>
+        <label for="loginPassword">비밀번호</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+        <button class="primary-button" type="submit">로그인</button>
+      </form>
+      <form id="registerForm" class="hub-form hidden" novalidate>
+        <h3>회원가입</h3>
+        <label for="registerEmail">이메일</label>
+        <input id="registerEmail" name="email" type="email" autocomplete="email" required>
+        <label for="registerDisplayName">이름</label>
+        <input id="registerDisplayName" name="displayName" type="text" autocomplete="name" required>
+        <label for="registerPassword">비밀번호</label>
+        <input id="registerPassword" name="password" type="password" autocomplete="new-password" minlength="8" required>
+        <button class="primary-button" type="submit">회원가입</button>
+      </form>
+      <div id="sessionSummary" class="hidden">
+        <p><strong id="sessionName"></strong><br><span id="sessionEmail"></span></p>
+        <button class="secondary-button" type="button" id="logoutButton">로그아웃</button>
+      </div>
+      <div id="mergeSummary" class="hidden" aria-live="polite">
+        <h3>게스트 데이터 병합</h3>
+        <ul id="mergeSteps"></ul>
+        <button class="secondary-button hidden" type="button" id="retryMergeButton">병합 다시 시도</button>
+      </div>
+    </section>
+
+    <section class="hub-grid" aria-label="계정 데이터">
+      <article class="panel" id="pantryPanel">
+        <h2>저장 재료</h2>
+        <p id="pantryStatus" role="status">로그인하면 저장한 재료를 확인할 수 있습니다.</p>
+        <ul id="pantryList"></ul>
+      </article>
+      <article class="panel" id="historyPanel">
+        <h2>메뉴 선택 기록</h2>
+        <p id="historyStatus" role="status">‘이 요리 할래요’로 선택한 메뉴만 표시됩니다.</p>
+        <ul id="historyList"></ul>
+      </article>
+    </section>
+  </main>
+  <script type="module" src="/me.js"></script>
+</body>
+</html>

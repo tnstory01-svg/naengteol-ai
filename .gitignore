@@ -27,3 +27,5 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+# GJC runtime/workflow state
+.gjc/

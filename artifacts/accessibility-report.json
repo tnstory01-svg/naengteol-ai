@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "web-accessibility-test-report",
+  "standard": "WCAG 2.2 AA targeted release checks",
+  "viewports": [
+    "360x800",
+    "390x844"
+  ],
+  "pages": [
+    "/",
+    "/tools.html",
+    "/me.html"
+  ],
+  "checks": {
+    "horizontalOverflow": "passed",
+    "threePrimaryNavigationEntries": "passed",
+    "coreTargets44px": "passed",
+    "formLabels": "passed",
+    "controlAccessibleNames": "passed",
+    "singleH1": "passed",
+    "liveErrorsAndStatuses": "passed",
+    "keyboardFocusVisible": "passed",
+    "reducedMotion": "passed",
+    "zoom200PercentNoOverflow": "passed"
+  },
+  "observations": {
+    "focusedControl": {
+      "name": "냉장고 털기",
+      "outline": "auto 1px"
+    },
+    "reducedMotionDurationSeconds": 1e-05,
+    "unlabeledControls": [],
+    "unnamedControls": []
+  },
+  "verdict": "passed",
+  "limitations": "Targeted DOM/computed-style and keyboard audit; not a substitute for a full assistive-technology lab."
+}

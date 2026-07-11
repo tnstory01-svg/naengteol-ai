@@ -1,3 +1,9 @@
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch((error) => {
+    console.error("Service worker registration failed.", error);
+  });
+}
+
 const form = document.querySelector("#recommendForm");
 const demoButton = document.querySelector("#demoButton");
 const message = document.querySelector("#message");
@@ -442,6 +448,8 @@ const state = {
   authenticated: false,
   user: null,
   csrfToken: null,
+  guestCsrfToken: null,
+  latestRecommendationId: null,
   pantry: [],
   history: [],
   totalSavings: 0,
@@ -450,10 +458,9 @@ const state = {
   explorer: getDefaultExplorerSelection()
 };
 
-const anonymousId = getAnonymousId();
-
 bindEvents();
 renderCategoryExplorer();
+await hydrateGuestSession();
 await hydrateHealth();
 await hydrateSession();
 
@@ -586,6 +593,17 @@ function bindEvents() {
   });
 }
 
+async function hydrateGuestSession() {
+  try {
+    const response = await fetch(apiUrl("/api/guest/session"), { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "게스트 세션을 시작하지 못했습니다.");
+    state.guestCsrfToken = data.csrfToken;
+  } catch (error) {
+    showMessage(formatError(error), true);
+  }
+}
+
 async function hydrateHealth() {
   try {
     const response = await fetch(apiUrl("/health"), { credentials: "same-origin" });
@@ -618,6 +636,7 @@ async function hydrateSession() {
       await hydrateProtectedData();
     } else {
       clearAuthState();
+      await refreshPantry();
     }
   } catch {
     clearAuthState();
@@ -648,12 +667,11 @@ async function hydrateProtectedData() {
 }
 
 async function submitAuthForm(targetForm, endpoint, successMessage) {
+  const payload = Object.fromEntries(new FormData(targetForm).entries());
   setFormLoading(targetForm, true);
   setAuthMessage("", false);
 
   try {
-    const formData = new FormData(targetForm);
-    const payload = Object.fromEntries(formData.entries());
     const data = await apiFetch(endpoint, {
       method: "POST",
       body: JSON.stringify(payload)
@@ -671,21 +689,16 @@ async function submitAuthForm(targetForm, endpoint, successMessage) {
 }
 
 async function createPantryItem() {
-  if (!state.authenticated) {
-    setAuthMessage("재료 저장은 로그인 후 사용할 수 있습니다.", true);
-    return;
-  }
-
+  const payload = Object.fromEntries(new FormData(pantryForm).entries());
   setFormLoading(pantryForm, true);
   try {
-    const formData = new FormData(pantryForm);
     await apiFetch("/api/pantry", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(formData.entries()))
+      body: JSON.stringify(payload)
     });
     pantryForm.reset();
     await refreshPantry();
-    setAuthMessage("재료가 저장되었습니다.", false);
+    setAuthMessage(state.authenticated ? "재료가 저장되었습니다." : "게스트 재료가 저장되었습니다. 다른 기기와 동기화하려면 내 정보에서 로그인하세요.", false);
   } catch (error) {
     setAuthMessage(formatError(error), true);
   } finally {
@@ -817,11 +830,7 @@ async function requestRecommendation() {
   try {
     const data = await apiFetch("/api/recommend", {
       method: "POST",
-      body: JSON.stringify({
-        anonymousId,
-        ingredientsText,
-        preferences
-      })
+      body: JSON.stringify({ ingredientsText, preferences })
     });
 
     renderRecommendation(data);
@@ -829,7 +838,8 @@ async function requestRecommendation() {
       await refreshHistory();
     }
   } catch (error) {
-    renderRecommendation(buildLocalRecommendation(ingredientsText, preferences));
+    recipesContainer.innerHTML = "";
+    showMessage(formatError(error), true);
   } finally {
     setLoading(false);
   }
@@ -843,9 +853,8 @@ async function apiFetch(url, options = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (state.csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-    headers.set("X-CSRF-Token", state.csrfToken);
-  }
+  const csrfToken = state.authenticated ? state.csrfToken : state.guestCsrfToken;
+  if (csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) headers.set("X-CSRF-Token", csrfToken);
 
   const requestUrl = apiUrl(url);
   const requestOptions = {
@@ -1102,14 +1111,9 @@ function renderAdminIpBlocks(blocks) {
 }
 
 function renderPantry() {
-  setFormDisabled(pantryForm, !state.authenticated);
-  usePantryButton.disabled = !state.authenticated || state.pantry.length === 0;
+  setFormDisabled(pantryForm, false);
+  usePantryButton.disabled = state.pantry.length === 0;
   pantryList.innerHTML = "";
-
-  if (!state.authenticated) {
-    pantryList.innerHTML = '<span class="empty-state">로그인 후 재료를 저장할 수 있습니다.</span>';
-    return;
-  }
 
   if (!state.pantry.length) {
     pantryList.innerHTML = '<span class="empty-state">아직 저장된 재료가 없습니다.</span>';
@@ -1305,57 +1309,6 @@ function buildCategoryRecommendation(item) {
   };
 }
 
-function buildLocalRecommendation(ingredientsText, preferences = {}) {
-  const ingredients = parseIngredientText(ingredientsText);
-  const candidates = CATEGORY_DATA.flatMap((category) => category.children.flatMap((group) => group.items));
-  const selectedItem =
-    candidates
-      .map((item) => ({ item, score: scoreCategoryItem(item, ingredients) }))
-      .sort((a, b) => b.score - a.score)[0]?.item || candidates[0];
-  const recipes = selectedItem.recipes.map((recipe, index) => {
-    const fullRecipe = toFullCategoryRecipe(selectedItem, recipe, index);
-    return {
-      ...fullRecipe,
-      ownedIngredients: uniqueValues([...ingredients, ...fullRecipe.ownedIngredients]).slice(0, 8),
-      missingIngredients: fullRecipe.missingIngredients.filter((item) => !ingredients.includes(item)).slice(0, 4)
-    };
-  });
-
-  return {
-    recipes,
-    priorityIngredients: uniqueValues([
-      ...ingredients,
-      ...String(preferences.priorityNotes || "")
-        .split(/[,،，\n]/)
-        .map((item) => item.trim())
-    ]).slice(0, 5),
-    summary: "GitHub Pages 정적 배포 환경에서 브라우저 안의 기본 메뉴로 생성했습니다.",
-    totals: {
-      bestSavings: Math.max(...recipes.map((recipe) => recipe.estimatedSavings)),
-      averageDeliveryCost: 12000,
-      estimatedHomeCookingCost: 3500
-    },
-    meta: {
-      source: "local",
-      logging: {
-        stored: false
-      }
-    }
-  };
-}
-
-function parseIngredientText(value) {
-  return uniqueValues(String(value || "").split(/[,،，\n]/)).slice(0, 15);
-}
-
-function scoreCategoryItem(item, ingredients) {
-  const haystack = [item.name, ...item.ingredients].join(" ").toLocaleLowerCase("ko-KR");
-  return ingredients.reduce((score, ingredient) => {
-    const token = ingredient.toLocaleLowerCase("ko-KR");
-    return score + (haystack.includes(token) ? 2 : token.includes(item.name.toLocaleLowerCase("ko-KR")) ? 1 : 0);
-  }, 0);
-}
-
 function toFullCategoryRecipe(item, recipe, index) {
   const ownedIngredients = uniqueValues([item.name, ...recipe.extraIngredients, ...item.ingredients]).slice(0, 8);
   const missingIngredients = recipe.extraIngredients
@@ -1406,8 +1359,9 @@ function renderRecommendation(data) {
   homeCost.textContent = formatKrw(totals.estimatedHomeCookingCost || 3500);
   savingsBarFill.style.width = `${Math.min(100, Math.round(((totals.bestSavings || 0) / 12000) * 100))}%`;
 
+  state.latestRecommendationId = data.recommendationId || null;
   renderPriorityIngredients(data.priorityIngredients || []);
-  renderRecipes(data.recipes || []);
+  renderRecipes(data.recipes || [], state.latestRecommendationId);
 }
 
 function renderPriorityIngredients(items) {
@@ -1426,7 +1380,7 @@ function renderPriorityIngredients(items) {
   }
 }
 
-function renderRecipes(recipes) {
+function renderRecipes(recipes, recommendationId) {
   recipesContainer.innerHTML = "";
 
   for (const recipe of recipes) {
@@ -1465,9 +1419,30 @@ function renderRecipes(recipes) {
           ${(recipe.steps || []).map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
         </ol>
       </div>
+      <button class="primary-button choose-recipe" type="button">이 요리 할래요</button>
+      <div class="selection-status" role="status"></div>
     `;
-
+    article.querySelector(".choose-recipe").addEventListener("click", () => selectRecipe(recommendationId, recipe, article));
     recipesContainer.append(article);
+  }
+}
+
+async function selectRecipe(recommendationId, recipe, article) {
+  if (!recommendationId || !recipe.id) { showMessage("선택 가능한 추천 정보가 없습니다. 다시 추천받아 주세요.", true); return; }
+  const button = article.querySelector(".choose-recipe");
+  const status = article.querySelector(".selection-status");
+  button.disabled = true;
+  status.textContent = "선택을 저장하는 중입니다.";
+  try {
+    const data = await apiFetch("/api/menu-selections", { method: "POST", body: JSON.stringify({ recommendationId, recipeId: recipe.id, idempotencyKey: crypto.randomUUID() }) });
+    status.textContent = `${recipe.name} 선택 완료 · 예상 절약 ${formatKrw(data.recipeSnapshot?.estimatedSavings || recipe.estimatedSavings)}`;
+    button.textContent = "선택 완료";
+    if (!state.authenticated) showMessage("메뉴 선택은 저장되었습니다. 재료와 기록을 다른 기기와 동기화하려면 내 정보에서 로그인하세요.", false);
+    else await refreshHistory();
+  } catch (error) {
+    button.disabled = false;
+    status.textContent = formatError(error);
+    status.classList.add("error");
   }
 }
 
@@ -1563,20 +1538,6 @@ function dish(name, cookTimeMinutes, reason, extraIngredients = []) {
 
 function uniqueValues(values) {
   return [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
-}
-
-function getAnonymousId() {
-  const key = "fridge_ingredients_anonymous_id";
-  const existing = localStorage.getItem(key);
-  if (existing) {
-    return existing;
-  }
-
-  const generated =
-    crypto.randomUUID?.() ||
-    `anon_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  localStorage.setItem(key, generated);
-  return generated;
 }
 
 function difficultyLabel(value) {
