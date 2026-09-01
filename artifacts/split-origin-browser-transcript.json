@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "surface": "web",
+  "tool": "Playwright",
+  "baseUrl": "https://frontend.127.0.0.1.nip.io:<frontend-port>",
+  "actions": [
+    {"type":"goto","url":"https://frontend.127.0.0.1.nip.io:<frontend-port>","timestamp":1},
+    {"type":"custom","target":"POST credentialed /api/guest/session","timestamp":2},
+    {"type":"assert","selector":"response[set-cookie*=fi_guest]","timestamp":3},
+    {"type":"custom","target":"Repeat credentialed guest bootstrap","timestamp":4},
+    {"type":"custom","target":"Register with guest CSRF token and merge key","timestamp":5},
+    {"type":"assert","selector":"response[set-cookie*=fi_session]","timestamp":6},
+    {"type":"custom","target":"POST authenticated CSRF-protected pantry mutation","timestamp":7},
+    {"type":"screenshot","selector":"body","path":"artifacts/split-origin-browser-mobile-360.png","timestamp":8},
+    {"type":"screenshot","selector":"body","path":"artifacts/split-origin-browser-mobile-390.png","timestamp":9}
+  ],
+  "assertions": [
+    {"selector":"response[set-cookie*=fi_guest]","status":"passed","message":"Guest cookie is SameSite=None and Secure","timestamp":10},
+    {"selector":"guest.csrfToken","status":"passed","message":"Repeated bootstrap returns the identical guest CSRF token","timestamp":11},
+    {"selector":"registration.merge.status","status":"passed","message":"Registration completes the guest merge and establishes a session","timestamp":12},
+    {"selector":"response[set-cookie*=fi_session]","status":"passed","message":"Session cookie is SameSite=None and Secure","timestamp":13},
+    {"selector":"pantry.status","status":"passed","message":"Authenticated CSRF-protected pantry mutation returns 201","timestamp":14}
+  ],
+  "screenshots": [
+    "artifacts/split-origin-browser-mobile-360.png",
+    "artifacts/split-origin-browser-mobile-390.png"
+  ]
+}
