@@ -1,40 +1,48 @@
 import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import http from "node:http";
+import https from "node:https";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import selfsigned from "selfsigned";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 let backendOrigin;
 let frontendOrigin;
 let backend;
+let backendProxy;
 let frontend;
 let databaseDirectory;
-
-async function waitForBackend() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      if ((await fetch(`${backendOrigin}/health`)).ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("split-origin backend did not become ready");
-}
 
 test.beforeAll(async ({}, testInfo) => {
   const backendPort = testInfo.project.name === "mobile-360" ? 3222 : 3224;
   const frontendPort = backendPort + 1;
-  backendOrigin = `http://127.0.0.1:${backendPort}`;
-  frontendOrigin = `http://127.0.0.1:${frontendPort}`;
+  const backendInternalPort = backendPort + 20;
+  const backendInternalOrigin = `http://127.0.0.1:${backendInternalPort}`;
+  backendOrigin = `https://api.127.0.0.1.nip.io:${backendPort}`;
+  frontendOrigin = `https://frontend.127.0.0.1.nip.io:${frontendPort}`;
   databaseDirectory = await mkdtemp(path.join(tmpdir(), "naengteol-split-origin-"));
+  const certificate = await selfsigned.generate(
+    [{ name: "commonName", value: "frontend.127.0.0.1.nip.io" }],
+    {
+      keySize: 2048,
+      extensions: [{
+        name: "subjectAltName",
+        altNames: [
+          { type: 2, value: "frontend.127.0.0.1.nip.io" },
+          { type: 2, value: "api.127.0.0.1.nip.io" }
+        ]
+      }]
+    }
+  );
   backend = spawn(process.execPath, ["server.js"], {
     cwd: root,
     env: {
       ...process.env,
       HOST: "127.0.0.1",
-      PORT: String(backendPort),
+      PORT: String(backendInternalPort),
       FRONTEND_ORIGIN: frontendOrigin,
       LOCAL_DB_PATH: path.join(databaseDirectory, "app.db.json"),
       GROQ_API_KEY: "",
@@ -42,7 +50,17 @@ test.beforeAll(async ({}, testInfo) => {
     },
     stdio: ["ignore", "ignore", "inherit"]
   });
-  frontend = http.createServer((_request, response) => {
+  backendProxy = https.createServer({ key: certificate.private, cert: certificate.cert }, (request, response) => {
+    const proxyRequest = http.request(`${backendInternalOrigin}${request.url}`, {
+      method: request.method,
+      headers: { ...request.headers, host: `127.0.0.1:${backendInternalPort}`, "x-forwarded-proto": "https" }
+    }, (proxyResponse) => {
+      response.writeHead(proxyResponse.statusCode || 500, proxyResponse.headers);
+      proxyResponse.pipe(response);
+    });
+    request.pipe(proxyRequest);
+  });
+  frontend = https.createServer({ key: certificate.private, cert: certificate.cert }, (_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     response.end(`<!doctype html>
       <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -54,12 +72,22 @@ test.beforeAll(async ({}, testInfo) => {
       </style>
       <main><h1>Split-origin browser harness</h1><p>Frontend and API origins are isolated.</p><strong>Guest, session, and CSRF checks passed</strong></main>`);
   });
-  await new Promise((resolve) => frontend.listen(frontendPort, "127.0.0.1", resolve));
-  await waitForBackend();
+  await Promise.all([
+    new Promise((resolve) => backendProxy.listen(backendPort, "127.0.0.1", resolve)),
+    new Promise((resolve) => frontend.listen(frontendPort, "127.0.0.1", resolve))
+  ]);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      if ((await fetch(`${backendInternalOrigin}/health`)).ok) break;
+    } catch {}
+    if (attempt === 79) throw new Error("split-origin backend did not become ready");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 });
 
 test.afterAll(async () => {
   if (backend) backend.kill();
+  if (backendProxy) await new Promise((resolve) => backendProxy.close(resolve));
   if (frontend) await new Promise((resolve) => frontend.close(resolve));
   if (databaseDirectory) await rm(databaseDirectory, { recursive: true, force: true });
 });

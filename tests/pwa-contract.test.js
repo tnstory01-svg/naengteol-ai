@@ -68,8 +68,8 @@ describe("online-only PWA contract", () => {
   test("manifest declares an installable Korean standalone app and maskable icons", async () => {
     const manifest = JSON.parse(await readFile(path.join(publicDirectory, "manifest.webmanifest"), "utf8"));
     assert.equal(manifest.display, "standalone");
-    assert.equal(manifest.start_url, "/");
-    assert.equal(manifest.scope, "/");
+    assert.equal(manifest.start_url, "./");
+    assert.equal(manifest.scope, "./");
     assert.match(`${manifest.name} ${manifest.short_name}`, /[가-힣]/);
     assert.ok(Array.isArray(manifest.icons));
     for (const size of [192, 512]) {

@@ -17,6 +17,7 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.61.1",
+    "selfsigned": "^5.5.0"
   }
 }

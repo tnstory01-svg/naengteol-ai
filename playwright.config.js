@@ -12,17 +12,24 @@ export default defineConfig({
   reporter: process.env.CI ? "dot" : "list",
   use: {
     baseURL,
+    ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     navigationTimeout: 15_000
   },
   projects: [
     {
       name: "mobile-360",
-      use: { ...devices["iPhone SE"], viewport: { width: 360, height: 800 } }
+      use: {
+        ...devices["iPhone SE"],
+        viewport: { width: 360, height: 800 }
+      }
     },
     {
       name: "mobile-390",
-      use: { ...devices["iPhone 12"], viewport: { width: 390, height: 844 } }
+      use: {
+        ...devices["iPhone 12"],
+        viewport: { width: 390, height: 844 }
+      }
     }
   ],
   webServer: process.env.PLAYWRIGHT_BASE_URL
