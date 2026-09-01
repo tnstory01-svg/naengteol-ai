@@ -21,14 +21,16 @@ export default defineConfig({
       name: "mobile-360",
       use: {
         ...devices["iPhone SE"],
-        viewport: { width: 360, height: 800 }
+        viewport: { width: 360, height: 800 },
+        launchOptions: { args: ["--ignore-certificate-errors"] }
       }
     },
     {
       name: "mobile-390",
       use: {
         ...devices["iPhone 12"],
-        viewport: { width: 390, height: 844 }
+        viewport: { width: 390, height: 844 },
+        launchOptions: { args: ["--ignore-certificate-errors"] }
       }
     }
   ],

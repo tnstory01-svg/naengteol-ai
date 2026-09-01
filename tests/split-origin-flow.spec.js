@@ -92,9 +92,10 @@ test.afterAll(async () => {
   if (databaseDirectory) await rm(databaseDirectory, { recursive: true, force: true });
 });
 
-test("browser retains cross-origin guest and session cookies for CSRF-protected mutations", async ({ page, context }, testInfo) => {
+test("browser retains secure same-site cross-origin cookies for CSRF-protected mutations", async ({ page }, testInfo) => {
   await page.goto(frontendOrigin);
 
+  const guestResponsePromise = page.waitForResponse((response) => response.url() === `${backendOrigin}/api/guest/session`);
   const guest = await page.evaluate(async (apiOrigin) => {
     const response = await fetch(`${apiOrigin}/api/guest/session`, {
       method: "POST",
@@ -104,9 +105,11 @@ test("browser retains cross-origin guest and session cookies for CSRF-protected 
     });
     return { status: response.status, body: await response.json() };
   }, backendOrigin);
+  const guestSetCookie = (await guestResponsePromise).headers()["set-cookie"] || "";
   expect(guest.status).toBe(200);
   expect(guest.body.csrfToken).toEqual(expect.any(String));
-  expect((await context.cookies(backendOrigin)).some((cookie) => cookie.name === "fi_guest")).toBe(true);
+  expect(guestSetCookie).toMatch(/SameSite=None/);
+  expect(guestSetCookie).toMatch(/;\s*Secure(?:;|$)/);
 
   const reusedGuest = await page.evaluate(async (apiOrigin) => {
     const response = await fetch(`${apiOrigin}/api/guest/session`, {
@@ -120,6 +123,7 @@ test("browser retains cross-origin guest and session cookies for CSRF-protected 
   expect(reusedGuest.status).toBe(200);
   expect(reusedGuest.body.csrfToken).toBe(guest.body.csrfToken);
 
+  const registrationResponsePromise = page.waitForResponse((response) => response.url() === `${backendOrigin}/api/auth/register`);
   const registration = await page.evaluate(async ({ apiOrigin, csrfToken }) => {
     const response = await fetch(`${apiOrigin}/api/auth/register`, {
       method: "POST",
@@ -134,10 +138,12 @@ test("browser retains cross-origin guest and session cookies for CSRF-protected 
     });
     return { status: response.status, body: await response.json() };
   }, { apiOrigin: backendOrigin, csrfToken: guest.body.csrfToken });
+  const registrationSetCookie = (await registrationResponsePromise).headers()["set-cookie"] || "";
   expect(registration.status).toBe(201);
   expect(registration.body.authenticated).toBe(true);
   expect(registration.body.merge.status).toBe("completed");
-  expect((await context.cookies(backendOrigin)).some((cookie) => cookie.name === "fi_session")).toBe(true);
+  expect(registrationSetCookie).toMatch(/SameSite=None/);
+  expect(registrationSetCookie).toMatch(/;\s*Secure(?:;|$)/);
 
   const pantry = await page.evaluate(async ({ apiOrigin, csrfToken }) => {
     const response = await fetch(`${apiOrigin}/api/pantry`, {
