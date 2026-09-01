@@ -16,17 +16,17 @@
   ],
   "browserEvidence": {
     "test": "tests/split-origin-flow.spec.js",
-    "frontendOrigin": "http://127.0.0.1:<frontend-port>",
-    "backendOrigin": "http://127.0.0.1:<backend-port>",
+    "frontendOrigin": "https://frontend.127.0.0.1.nip.io:<frontend-port>",
+    "backendOrigin": "https://api.127.0.0.1.nip.io:<backend-port>",
     "projects": ["mobile-360", "mobile-390"],
     "assertions": [
-      "credentialed browser fetch stores the cross-origin fi_guest cookie",
+      "guest and session responses emit SameSite=None; Secure cookies over HTTPS",
       "a second guest bootstrap reuses that cookie and returns the identical CSRF token",
       "guest CSRF token authorizes cross-origin registration",
       "browser stores the resulting fi_session cookie",
       "session CSRF token authorizes a cross-origin pantry mutation"
     ],
-    "result": "2/2 split-origin browser cases passed"
+    "result": "2/2 secure same-site cross-origin browser cases passed"
   },
   "apiAdversarialEvidence": [
     "configured credentialed preflight and actual requests return exact Access-Control-Allow-Origin and Access-Control-Allow-Credentials=true",
