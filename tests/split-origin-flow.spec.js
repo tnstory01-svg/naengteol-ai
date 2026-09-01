@@ -156,7 +156,7 @@ test("browser retains secure same-site cross-origin cookies for CSRF-protected m
   }, { apiOrigin: backendOrigin, csrfToken: registration.body.csrfToken });
   expect(pantry.status).toBe(201);
   expect(pantry.body.item.name).toBe("김치");
-  await page.screenshot({
+  await page.locator("main").screenshot({
     path: path.join(root, "artifacts", `split-origin-browser-${testInfo.project.name}.png`)
   });
 });
