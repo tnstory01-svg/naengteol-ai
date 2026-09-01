@@ -28,6 +28,26 @@
     ],
     "result": "2/2 secure same-site cross-origin browser cases passed"
   },
+  "automationTranscript": {
+    "tool": "Playwright",
+    "actions": [
+      "Open the HTTPS frontend harness",
+      "Create and reuse a credentialed guest session",
+      "Register while merging the guest session",
+      "Submit an authenticated CSRF-protected pantry mutation",
+      "Capture full-page mobile screenshots"
+    ],
+    "assertions": [
+      "guest and session responses include SameSite=None; Secure cookies",
+      "the repeated guest bootstrap returns the identical CSRF token",
+      "registration completes the guest merge and establishes a session",
+      "the authenticated pantry mutation returns 201"
+    ],
+    "screenshots": [
+      "artifacts/split-origin-browser-mobile-360.png",
+      "artifacts/split-origin-browser-mobile-390.png"
+    ]
+  },
   "apiAdversarialEvidence": [
     "configured credentialed preflight and actual requests return exact Access-Control-Allow-Origin and Access-Control-Allow-Credentials=true",
     "configured cross-origin health is readable with exact credentialed CORS while hostile-origin health is rejected",
