@@ -168,7 +168,7 @@ async function apiFetch(path, options = {}) {
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = options.csrfToken === undefined ? state.csrfToken : options.csrfToken;
   if (token && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) headers.set("X-CSRF-Token", token);
-  const response = await fetch(apiUrl(path), { ...options, headers, credentials: "same-origin" });
+  const response = await fetch(apiUrl(path), { ...options, headers, credentials: "include" });
   const data = (response.headers.get("content-type") || "").includes("json") ? await response.json() : {};
   if (!response.ok) throw new Error(data.error || data.message || `요청 실패 (${response.status})`);
   return data;

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "kind": "api-browser-test-report",
+  "status": "passed",
+  "e2eStatus": "passed",
+  "redTeamStatus": "passed",
+  "commands": [
+    {
+      "command": "npm test && npm run test:api && npm run test:pwa && npm run test:browser",
+      "result": "exit 0; 19 database/schema tests, 17 API tests, 5 PWA tests, and 10 Playwright browser tests passed with zero failures"
+    },
+    {
+      "command": "PUBLIC_API_BASE_URL=https://api.example.com npm run configure:pages",
+      "result": "exit 0; generated an exact https runtime API origin; the checked-in local default was restored afterward"
+    }
+  ],
+  "browserEvidence": {
+    "test": "tests/split-origin-flow.spec.js",
+    "frontendOrigin": "http://127.0.0.1:<frontend-port>",
+    "backendOrigin": "http://127.0.0.1:<backend-port>",
+    "projects": ["mobile-360", "mobile-390"],
+    "assertions": [
+      "credentialed browser fetch stores the cross-origin fi_guest cookie",
+      "a second guest bootstrap reuses that cookie and returns the identical CSRF token",
+      "guest CSRF token authorizes cross-origin registration",
+      "browser stores the resulting fi_session cookie",
+      "session CSRF token authorizes a cross-origin pantry mutation"
+    ],
+    "result": "2/2 split-origin browser cases passed"
+  },
+  "apiAdversarialEvidence": [
+    "configured credentialed preflight and actual requests return exact Access-Control-Allow-Origin and Access-Control-Allow-Credentials=true",
+    "configured cross-origin health is readable with exact credentialed CORS while hostile-origin health is rejected",
+    "hostile origins receive 403 without CORS grant headers",
+    "unsupported preflight methods and headers receive 403",
+    "missing and forged guest CSRF tokens receive 403",
+    "secure proxy requests emit SameSite=None; Secure guest and session cookies",
+    "local non-secure requests emit SameSite=Lax cookies without Secure",
+    "credentialed responses never use an Access-Control-Allow-Origin wildcard"
+  ]
+}

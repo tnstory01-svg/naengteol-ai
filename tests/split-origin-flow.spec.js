@@ -1,0 +1,129 @@
+import { test, expect } from "@playwright/test";
+import { spawn } from "node:child_process";
+import http from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+let backendOrigin;
+let frontendOrigin;
+let backend;
+let frontend;
+let databaseDirectory;
+
+async function waitForBackend() {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      if ((await fetch(`${backendOrigin}/health`)).ok) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("split-origin backend did not become ready");
+}
+
+test.beforeAll(async ({}, testInfo) => {
+  const backendPort = testInfo.project.name === "mobile-360" ? 3222 : 3224;
+  const frontendPort = backendPort + 1;
+  backendOrigin = `http://127.0.0.1:${backendPort}`;
+  frontendOrigin = `http://127.0.0.1:${frontendPort}`;
+  databaseDirectory = await mkdtemp(path.join(tmpdir(), "naengteol-split-origin-"));
+  backend = spawn(process.execPath, ["server.js"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(backendPort),
+      FRONTEND_ORIGIN: frontendOrigin,
+      LOCAL_DB_PATH: path.join(databaseDirectory, "app.db.json"),
+      GROQ_API_KEY: "",
+      SUPABASE_DB_ENABLED: "false"
+    },
+    stdio: ["ignore", "ignore", "inherit"]
+  });
+  frontend = http.createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(`<!doctype html>
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>split origin</title>
+      <style>
+        body { margin: 0; min-height: 100vh; font: 16px system-ui; color: #17324d; background: linear-gradient(135deg, #dff7ef, #dbeafe); }
+        main { margin: 15vh auto; width: min(80%, 34rem); padding: 2rem; border: 3px solid #2563eb; border-radius: 1.5rem; background: #fff; box-shadow: 0 1rem 3rem #1e3a5f55; }
+        strong { display: block; margin-top: 1rem; padding: 1rem; color: #fff; background: #15803d; border-radius: .75rem; }
+      </style>
+      <main><h1>Split-origin browser harness</h1><p>Frontend and API origins are isolated.</p><strong>Guest, session, and CSRF checks passed</strong></main>`);
+  });
+  await new Promise((resolve) => frontend.listen(frontendPort, "127.0.0.1", resolve));
+  await waitForBackend();
+});
+
+test.afterAll(async () => {
+  if (backend) backend.kill();
+  if (frontend) await new Promise((resolve) => frontend.close(resolve));
+  if (databaseDirectory) await rm(databaseDirectory, { recursive: true, force: true });
+});
+
+test("browser retains cross-origin guest and session cookies for CSRF-protected mutations", async ({ page, context }, testInfo) => {
+  await page.goto(frontendOrigin);
+
+  const guest = await page.evaluate(async (apiOrigin) => {
+    const response = await fetch(`${apiOrigin}/api/guest/session`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    return { status: response.status, body: await response.json() };
+  }, backendOrigin);
+  expect(guest.status).toBe(200);
+  expect(guest.body.csrfToken).toEqual(expect.any(String));
+  expect((await context.cookies(backendOrigin)).some((cookie) => cookie.name === "fi_guest")).toBe(true);
+
+  const reusedGuest = await page.evaluate(async (apiOrigin) => {
+    const response = await fetch(`${apiOrigin}/api/guest/session`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    return { status: response.status, body: await response.json() };
+  }, backendOrigin);
+  expect(reusedGuest.status).toBe(200);
+  expect(reusedGuest.body.csrfToken).toBe(guest.body.csrfToken);
+
+  const registration = await page.evaluate(async ({ apiOrigin, csrfToken }) => {
+    const response = await fetch(`${apiOrigin}/api/auth/register`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({
+        email: "split-origin-browser@example.com",
+        displayName: "분리 출처",
+        password: "StrongPass!234",
+        guestMergeIdempotencyKey: "split-origin-browser-register"
+      })
+    });
+    return { status: response.status, body: await response.json() };
+  }, { apiOrigin: backendOrigin, csrfToken: guest.body.csrfToken });
+  expect(registration.status).toBe(201);
+  expect(registration.body.authenticated).toBe(true);
+  expect(registration.body.merge.status).toBe("completed");
+  expect((await context.cookies(backendOrigin)).some((cookie) => cookie.name === "fi_session")).toBe(true);
+
+  const pantry = await page.evaluate(async ({ apiOrigin, csrfToken }) => {
+    const response = await fetch(`${apiOrigin}/api/pantry`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ stableId: "split-origin-item", name: "김치", quantity: "1통" })
+    });
+    return { status: response.status, body: await response.json() };
+  }, { apiOrigin: backendOrigin, csrfToken: registration.body.csrfToken });
+  expect(pantry.status).toBe(201);
+  expect(pantry.body.item.name).toBe("김치");
+  await page.screenshot({
+    path: path.join(root, "artifacts", `split-origin-browser-${testInfo.project.name}.png`),
+    fullPage: true
+  });
+});

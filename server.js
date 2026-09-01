@@ -153,7 +153,17 @@ export async function handleRequest(request, response) {
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
+    if (url.pathname === "/health") {
+      applyCors(request, response);
+    }
+
     if (url.pathname.startsWith("/api/")) {
+      applyCors(request, response);
+      if (request.method === "OPTIONS") {
+        handleCorsPreflight(request, response);
+        return;
+      }
+
       const ipBlock = await resolveIpBlock(request);
       if (ipBlock) {
         const auth = await resolveSession(request);
@@ -1509,26 +1519,105 @@ function assertSafeRequestOrigin(request) {
   }
 
   const fetchSite = String(request.headers["sec-fetch-site"] || "");
-  if (fetchSite && !["same-origin", "same-site", "none"].includes(fetchSite)) {
+  const origin = request.headers.origin;
+  const configuredFrontendOrigin = getConfiguredFrontendOrigin();
+  if (fetchSite && !["same-origin", "same-site", "none"].includes(fetchSite) && origin !== configuredFrontendOrigin) {
     throw new HttpError(403, "허용되지 않은 요청 출처입니다.");
   }
 
-  const origin = request.headers.origin;
   if (!origin) {
     return;
   }
 
   const allowedOrigins = new Set();
-  const host = request.headers.host;
-  const forwardedHost = request.headers["x-forwarded-host"];
-  for (const value of [host, forwardedHost].filter(Boolean)) {
-    allowedOrigins.add(`http://${value}`);
-    allowedOrigins.add(`https://${value}`);
+  const requestOrigin = getRequestOrigin(request);
+  if (requestOrigin) allowedOrigins.add(requestOrigin);
+  if (configuredFrontendOrigin) {
+    allowedOrigins.add(configuredFrontendOrigin);
   }
 
   if (!allowedOrigins.has(origin)) {
     throw new HttpError(403, "허용되지 않은 요청 출처입니다.");
   }
+}
+
+function applyCors(request, response) {
+  const origin = request.headers.origin;
+  if (!origin) {
+    return;
+  }
+
+  if (isSameRequestOrigin(request, origin)) {
+    return;
+  }
+
+  const configuredFrontendOrigin = getConfiguredFrontendOrigin();
+  if (!configuredFrontendOrigin || origin !== configuredFrontendOrigin) {
+    throw new HttpError(403, "허용되지 않은 요청 출처입니다.");
+  }
+
+  response.setHeader("Access-Control-Allow-Origin", configuredFrontendOrigin);
+  response.setHeader("Access-Control-Allow-Credentials", "true");
+  response.setHeader("Vary", "Origin");
+}
+
+function isSameRequestOrigin(request, origin) {
+  return origin === getRequestOrigin(request);
+}
+
+function getRequestOrigin(request) {
+  const host = request.headers.host;
+  if (!host) {
+    return "";
+  }
+  const secure = request.socket?.encrypted || request.headers["x-forwarded-proto"] === "https";
+  return `${secure ? "https" : "http"}://${host}`;
+}
+
+function handleCorsPreflight(request, response) {
+  const requestedMethod = String(request.headers["access-control-request-method"] || "").toUpperCase();
+  const allowedMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+  if (!allowedMethods.includes(requestedMethod)) {
+    throw new HttpError(403, "허용되지 않은 CORS 요청 방식입니다.");
+  }
+
+  const requestedHeaders = String(request.headers["access-control-request-headers"] || "")
+    .split(",")
+    .map((header) => header.trim().toLowerCase())
+    .filter(Boolean);
+  const allowedHeaders = new Set(["content-type", "x-csrf-token"]);
+  if (requestedHeaders.some((header) => !allowedHeaders.has(header))) {
+    throw new HttpError(403, "허용되지 않은 CORS 요청 헤더입니다.");
+  }
+
+  response.writeHead(204, {
+    ...securityHeaders(),
+    "Access-Control-Allow-Methods": allowedMethods.join(", "),
+    "Access-Control-Allow-Headers": [...allowedHeaders].join(", "),
+    "Access-Control-Max-Age": "600"
+  });
+  response.end();
+}
+
+function getConfiguredFrontendOrigin() {
+  const configured = String(process.env.FRONTEND_ORIGIN || "").trim();
+  if (!configured) {
+    return "";
+  }
+  if (configured === "*") {
+    throw new Error("FRONTEND_ORIGIN must be an exact origin, not a wildcard.");
+  }
+
+  let url;
+  try {
+    url = new URL(configured);
+  } catch {
+    throw new Error("FRONTEND_ORIGIN must be a valid absolute origin.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("FRONTEND_ORIGIN must contain only an http(s) scheme and host.");
+  }
+  return url.origin;
 }
 
 function assertCsrf(request, session) {
@@ -1562,7 +1651,7 @@ function serializeSessionCookie(token, request) {
   return [
     `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${secure ? "None" : "Lax"}`,
     "Path=/",
     `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
     secure ? "Secure" : ""
@@ -1576,7 +1665,7 @@ function clearSessionCookie(request) {
   return [
     `${SESSION_COOKIE_NAME}=`,
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${secure ? "None" : "Lax"}`,
     "Path=/",
     "Max-Age=0",
     secure ? "Secure" : ""
@@ -1586,11 +1675,13 @@ function clearSessionCookie(request) {
 }
 
 function serializeGuestCookie(token, request) {
-  return [`${GUEST_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", "SameSite=Lax", "Path=/", `Max-Age=${Math.floor(GUEST_TTL_MS / 1000)}`, isSecureCookieRequired(request) ? "Secure" : ""].filter(Boolean).join("; ");
+  const secure = isSecureCookieRequired(request);
+  return [`${GUEST_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", `SameSite=${secure ? "None" : "Lax"}`, "Path=/", `Max-Age=${Math.floor(GUEST_TTL_MS / 1000)}`, secure ? "Secure" : ""].filter(Boolean).join("; ");
 }
 
 function clearGuestCookie(request) {
-  return [`${GUEST_COOKIE_NAME}=`, "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0", isSecureCookieRequired(request) ? "Secure" : ""].filter(Boolean).join("; ");
+  const secure = isSecureCookieRequired(request);
+  return [`${GUEST_COOKIE_NAME}=`, "HttpOnly", `SameSite=${secure ? "None" : "Lax"}`, "Path=/", "Max-Age=0", secure ? "Secure" : ""].filter(Boolean).join("; ");
 }
 
 function isSecureCookieRequired(request) {

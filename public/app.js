@@ -595,7 +595,7 @@ function bindEvents() {
 
 async function hydrateGuestSession() {
   try {
-    const response = await fetch(apiUrl("/api/guest/session"), { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const response = await fetch(apiUrl("/api/guest/session"), { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "게스트 세션을 시작하지 못했습니다.");
     state.guestCsrfToken = data.csrfToken;
@@ -606,7 +606,7 @@ async function hydrateGuestSession() {
 
 async function hydrateHealth() {
   try {
-    const response = await fetch(apiUrl("/health"), { credentials: "same-origin" });
+    const response = await fetch(apiUrl("/health"), { credentials: "include" });
     const data = await response.json();
 
     const aiReady = Boolean(data.groqConfigured || data.aiConfigured);
@@ -861,7 +861,7 @@ async function apiFetch(url, options = {}) {
     ...options,
     method,
     headers,
-    credentials: "same-origin"
+    credentials: "include"
   };
 
   if (method === "GET" && !options.body && canDedupeGet(url)) {

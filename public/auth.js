@@ -122,7 +122,7 @@ async function apiFetch(url, options = {}) {
   const response = await fetch(apiUrl(url), {
     ...options,
     headers,
-    credentials: "same-origin"
+    credentials: "include"
   });
 
   const contentType = response.headers.get("content-type") || "";

@@ -50,6 +50,21 @@ after(async () => {
 });
 
 describe("online-only PWA contract", () => {
+  test("Pages API clients load runtime configuration and include cross-origin credentials", async () => {
+    for (const pageName of ["index.html", "login.html", "register.html", "me.html"]) {
+      const html = await readFile(path.join(publicDirectory, pageName), "utf8");
+      assert.match(html, /runtime-config\.js/);
+      assert.ok(html.indexOf("runtime-config.js") < html.search(/(?:app|auth|me)\.js/), `${pageName} must load runtime config before its API client`);
+    }
+
+    for (const scriptName of ["app.js", "auth.js", "me.js"]) {
+      const source = await readFile(path.join(publicDirectory, scriptName), "utf8");
+      assert.match(source, /window\.NAENGTEOL_API_BASE_URL/);
+      assert.doesNotMatch(source, /credentials:\s*[\"']same-origin[\"']/);
+      assert.match(source, /credentials:\s*[\"']include[\"']/);
+    }
+  });
+
   test("manifest declares an installable Korean standalone app and maskable icons", async () => {
     const manifest = JSON.parse(await readFile(path.join(publicDirectory, "manifest.webmanifest"), "utf8"));
     assert.equal(manifest.display, "standalone");

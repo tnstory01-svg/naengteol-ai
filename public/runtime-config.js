@@ -1,0 +1,1 @@
+window.NAENGTEOL_API_BASE_URL = "";

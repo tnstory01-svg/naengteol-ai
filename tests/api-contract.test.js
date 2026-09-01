@@ -53,7 +53,7 @@ before(async () => {
   databaseDirectory = await mkdtemp(path.join(tmpdir(), "naengteol-api-contract-"));
   server = spawn(process.execPath, ["server.js"], {
     cwd: root,
-    env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), LOCAL_DB_PATH: path.join(databaseDirectory, "app.db.json"), GROQ_API_KEY: "", SUPABASE_DB_ENABLED: "false", ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: "AdminStrong!234", ADMIN_DISPLAY_NAME: "검증 관리자" },
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), FRONTEND_ORIGIN: "https://frontend.example", LOCAL_DB_PATH: path.join(databaseDirectory, "app.db.json"), GROQ_API_KEY: "", SUPABASE_DB_ENABLED: "false", ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: "AdminStrong!234", ADMIN_DISPLAY_NAME: "검증 관리자" },
     stdio: ["ignore", "ignore", "inherit"]
   });
   await waitForServer();
@@ -65,6 +65,99 @@ after(async () => {
 });
 
 describe("guest recommendation, selection, and merge contracts", () => {
+  test("split-origin CORS allows only the configured credentialed frontend", async () => {
+    const preflight = await request("/api/guest/session", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://frontend.example",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type, x-csrf-token"
+      }
+    });
+    assert.equal(preflight.response.status, 204);
+    assert.equal(preflight.response.headers.get("access-control-allow-origin"), "https://frontend.example");
+    assert.equal(preflight.response.headers.get("access-control-allow-credentials"), "true");
+    assert.match(preflight.response.headers.get("access-control-allow-methods"), /POST/);
+    assert.match(preflight.response.headers.get("access-control-allow-headers"), /x-csrf-token/);
+
+    const health = await request("/health", { headers: { origin: "https://frontend.example" } });
+    assert.equal(health.response.status, 200);
+    assert.equal(health.response.headers.get("access-control-allow-origin"), "https://frontend.example");
+    assert.equal(health.response.headers.get("access-control-allow-credentials"), "true");
+
+    const hostileHealth = await request("/health", { headers: { origin: "https://attacker.example" } });
+    assert.equal(hostileHealth.response.status, 403);
+    assert.equal(hostileHealth.response.headers.get("access-control-allow-origin"), null);
+
+    const allowed = await request("/api/guest/session", {
+      method: "POST",
+      headers: { origin: "https://frontend.example", "sec-fetch-site": "cross-site" },
+      body: "{}"
+    });
+    assert.equal(allowed.response.status, 200);
+    assert.equal(allowed.response.headers.get("access-control-allow-origin"), "https://frontend.example");
+    assert.equal(allowed.response.headers.get("access-control-allow-credentials"), "true");
+    assert.notEqual(allowed.response.headers.get("access-control-allow-origin"), "*");
+
+    const rejected = await request("/api/guest/session", {
+      method: "POST",
+      headers: { origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
+      body: "{}"
+    });
+    assert.equal(rejected.response.status, 403);
+    assert.equal(rejected.response.headers.get("access-control-allow-origin"), null);
+
+    const forwardedHostSpoof = await request("/api/guest/session", {
+      method: "POST",
+      headers: {
+        origin: "https://spoofed.example",
+        "x-forwarded-host": "spoofed.example",
+        "x-forwarded-proto": "https"
+      },
+      body: "{}"
+    });
+    assert.equal(forwardedHostSpoof.response.status, 403);
+    assert.equal(forwardedHostSpoof.response.headers.get("access-control-allow-origin"), null);
+  });
+
+  test("secure deployment cookies support split-origin credentials while local cookies remain lax", async () => {
+    const secureGuest = await request("/api/guest/session", {
+      method: "POST",
+      headers: { origin: "https://frontend.example", "x-forwarded-proto": "https" },
+      body: "{}"
+    });
+    const secureCookie = secureGuest.response.headers.get("set-cookie") || "";
+    assert.match(secureCookie, /SameSite=None/);
+    assert.match(secureCookie, /;\s*Secure(?:;|$)/);
+    const secureGuestCredential = secureCookie.split(";")[0];
+    const secureRegistration = await request("/api/auth/register", {
+      method: "POST",
+      headers: {
+        cookie: secureGuestCredential,
+        origin: "https://frontend.example",
+        "sec-fetch-site": "cross-site",
+        "x-csrf-token": secureGuest.body.csrfToken,
+        "x-forwarded-proto": "https"
+      },
+      body: JSON.stringify({
+        email: "secure-cookie@example.com",
+        displayName: "보안 쿠키",
+        password: "StrongPass!234",
+        guestMergeIdempotencyKey: "secure-cookie-registration"
+      })
+    });
+    assert.equal(secureRegistration.response.status, 201);
+    const secureSessionCookie = secureRegistration.response.headers.get("set-cookie") || "";
+    assert.match(secureSessionCookie, /fi_session=/);
+    assert.match(secureSessionCookie, /SameSite=None/);
+    assert.match(secureSessionCookie, /;\s*Secure(?:;|$)/);
+
+    const localGuest = await request("/api/guest/session", { method: "POST", body: "{}" });
+    const localCookie = localGuest.response.headers.get("set-cookie") || "";
+    assert.match(localCookie, /SameSite=Lax/);
+    assert.doesNotMatch(localCookie, /;\s*Secure(?:;|$)/);
+  });
+
   test("health and anonymous account session remain public", async () => {
     assert.equal((await request("/health")).body.ok, true);
     assert.deepEqual((await request("/api/auth/session")).body, { authenticated: false });

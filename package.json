@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "configure:pages": "node scripts/configure-pages.js",
     "test": "node --test tests/local-db-contract.test.js tests/supabase-db-contract.test.js tests/schema-contract.test.js",
     "test:browser": "playwright test",
     "test:api": "node --test tests/api-contract.test.js",
