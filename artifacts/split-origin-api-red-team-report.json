@@ -35,7 +35,7 @@
       "Create and reuse a credentialed guest session",
       "Register while merging the guest session",
       "Submit an authenticated CSRF-protected pantry mutation",
-      "Capture full-page mobile screenshots"
+      "Capture focused main-panel mobile screenshots"
     ],
     "assertions": [
       "guest and session responses include SameSite=None; Secure cookies",

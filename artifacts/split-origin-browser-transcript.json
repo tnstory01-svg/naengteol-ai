@@ -11,8 +11,8 @@
     {"type":"custom","target":"Register with guest CSRF token and merge key","timestamp":5},
     {"type":"assert","selector":"response[set-cookie*=fi_session]","timestamp":6},
     {"type":"custom","target":"POST authenticated CSRF-protected pantry mutation","timestamp":7},
-    {"type":"screenshot","selector":"body","path":"artifacts/split-origin-browser-mobile-360.png","timestamp":8},
-    {"type":"screenshot","selector":"body","path":"artifacts/split-origin-browser-mobile-390.png","timestamp":9}
+    {"type":"screenshot","selector":"main","path":"artifacts/split-origin-browser-mobile-360.png","timestamp":8},
+    {"type":"screenshot","selector":"main","path":"artifacts/split-origin-browser-mobile-390.png","timestamp":9}
   ],
   "assertions": [
     {"selector":"response[set-cookie*=fi_guest]","status":"passed","message":"Guest cookie is SameSite=None and Secure","timestamp":10},
