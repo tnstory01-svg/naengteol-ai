@@ -16,7 +16,7 @@
 - [x] DB 오류 응답·로그에 요청 ID, 경로, 오류 코드, 재시도 가능 여부를 남기고 외부 오류 본문·비밀값은 제외한다.
 - [x] `/health`에서 실제 Supabase 최소 조회를 수행한다. 연결 실패를 DB 준비 완료로 표시하지 않는다.
 - [x] Vercel이 미리 읽은 요청 본문도 처리하고 JSON·바이트 크기 제한을 검증한다.
-- [ ] 변경 커밋을 `main`에 푸시하고 연결된 Vercel 배포 결과를 확인한다.
+- [x] 변경 커밋을 `main`에 푸시하고 연결된 Vercel 배포 결과를 확인한다.
 - [ ] 운영 Supabase 설정·스키마를 확인하고 `/health`와 API 복구를 실측한다.
 
 수정 전 관찰(2026-09-05): `/`는 HTML을 반환했지만 `/health`는 `500 FUNCTION_INVOCATION_FAILED`, `/runtime-config.js`는 404였다. 공개 응답만으로 500의 원인을 확정하지 않는다. 원격 배포는 `d09e4db`였으며 로컬 후속 커밋은 포함하지 않았다.
@@ -47,7 +47,18 @@ git diff --check
 
 Windows PowerShell에서 실행 정책으로 `npm.ps1`이 막히면 `npm.cmd`를 사용한다. 브라우저 실행기의 서버 종료가 지연되면 별도 로컬 서버를 실행하고 `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000`을 지정한다.
 
-검증 기록(2026-09-05): DB·스키마 24개, API·배포 진입점 23개, PWA 5개, 브라우저 14개 통과. 구문 검사와 `git diff --check`도 통과했다. 브라우저 병렬 실행에서 버튼 탐색 시간 초과 1건이 있었으며 해당 검사 재실행과 최종 전체 단일 worker 실행은 통과했다(14개, 27.8초). 실제 Supabase 연결·운영 저장 검증은 이 결과에 포함하지 않는다.
+검증 기록(2026-09-05): DB·스키마 24개, API·배포 진입점 24개, PWA 5개, 브라우저 14개 통과. API 수치는 후속 초기화 진단 보완까지 포함한다. 구문 검사와 `git diff --check`도 통과했다. 브라우저 병렬 실행에서 버튼 탐색 시간 초과 1건이 있었으며 해당 검사 재실행과 최종 전체 단일 worker 실행은 통과했다(14개, 27.8초). 실제 Supabase 연결·운영 저장 검증은 이 결과에 포함하지 않는다.
+
+## 운영 확인 결과
+
+2026-09-05 19:58 KST 확인:
+
+- 구현 커밋 `5b33a8b`, 초기화 진단 보완 `3fcc2d5`를 GitHub `main`에 푸시했다. 두 커밋의 Vercel Production 배포는 성공 상태다.
+- `3fcc2d5`의 배포 ID는 `6280155681`이다. `/`, `/me.html`, `/tools.html`, `/runtime-config.js`는 HTTP 200이다. runtime API origin은 빈 값으로 같은 Vercel 주소를 사용한다.
+- `/health`와 `/api/auth/session`은 HTTP 503, `DATABASE_UNAVAILABLE`, `retryable=true`를 반환한다. 헬스 체크 요청 ID는 `8d78e156-ad7c-46b1-ad49-1fc47e8c469b`이다.
+- 외부 DB의 HTTP 상태가 없는 연결 실패다. 공개 응답만으로 프로젝트 중지, URL 오류, 네트워크 문제 중 어느 것인지 확정하지 않는다. 운영 연결·저장·회원가입 검증은 미완료다.
+- Vercel 서버 환경의 `SUPABASE_URL`, 서비스 롤 키 설정, Supabase 프로젝트 활성 상태와 연결 가능 여부를 운영 계정에서 확인해야 한다. 실제 키를 문서나 채팅에 복사하지 않는다. 현재 작업 환경에는 이 설정을 조회·변경할 Vercel/Supabase 연결이 없다.
+- 운영 DB 마이그레이션은 실행하지 않았다. 연결 복구 뒤 [기능 복구 체크리스트](limited-feature-recovery-plan.md)의 실제 저장 검증을 재개한다. Groq는 계속 제외한다.
 
 ## 4. 운영 확인 후 최적화
 
