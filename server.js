@@ -294,7 +294,7 @@ async function ensureAppReady() {
   if (!appReady) {
     appReady = initializeApp().catch((error) => {
       appReady = null;
-      if (error instanceof HttpError) throw error;
+      if (error instanceof HttpError || error.code === "DATABASE_UNAVAILABLE") throw error;
       throw new HttpError(503, "서버 데이터베이스를 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.", {
         code: "DATABASE_INITIALIZATION_FAILED", retryable: true
       });
@@ -1103,12 +1103,16 @@ async function ensureAdminAccount() {
   }
 
   if (!validateEmail(email)) {
-    throw new Error("ADMIN_EMAIL must be a valid email address.");
+    throw new HttpError(503, "관리자 초기 계정 설정을 확인해 주세요.", {
+      code: "ADMIN_CONFIGURATION_INVALID", fields: ["ADMIN_EMAIL"], retryable: false
+    });
   }
 
   const passwordFailures = validatePassword(password);
   if (passwordFailures.length) {
-    throw new Error("ADMIN_PASSWORD does not meet the password policy.");
+    throw new HttpError(503, "관리자 초기 계정 설정을 확인해 주세요.", {
+      code: "ADMIN_CONFIGURATION_INVALID", fields: ["ADMIN_PASSWORD"], retryable: false
+    });
   }
 
   const displayName = normalizeDisplayName(process.env.ADMIN_DISPLAY_NAME || "Admin", email);
@@ -1488,7 +1492,7 @@ function securityHeaders() {
 function handleError(response, error, context) {
   if (error.code === "DATABASE_UNAVAILABLE") {
     error = new HttpError(503, "서버 데이터베이스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.", {
-      code: error.code, retryable: error.retryable
+      code: error.code, retryable: error.retryable, upstreamStatus: error.upstreamStatus
     });
   }
   if (error instanceof HttpError) {

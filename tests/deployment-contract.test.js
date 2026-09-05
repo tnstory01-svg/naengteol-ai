@@ -97,6 +97,7 @@ test("Supabase outage yields safe diagnostics and recovers without local fallbac
       assert.equal(failed.status, 503);
       assert.equal(body.details.code, "DATABASE_UNAVAILABLE");
       assert.equal(body.details.retryable, false);
+      assert.equal(body.details.upstreamStatus, 401);
       assert.equal(JSON.stringify(body).includes(upstreamSecret), false);
       healthy = true;
       const recovered = await fetch(`${origin}/health`);
@@ -152,4 +153,22 @@ test("Vercel parsed bodies support mutations and preserve size and JSON validati
     const listed = await fetch(`${origin}/api/pantry`, { headers: { cookie } });
     assert.equal((await listed.json()).items.length, 1);
   });
+});
+
+test("invalid administrator settings identify only the field requiring correction", async () => {
+  for (const [env, field] of [
+    [{ ADMIN_EMAIL: "not-an-email", ADMIN_PASSWORD: "PrivatePassword!234" }, "ADMIN_EMAIL"],
+    [{ ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: "short" }, "ADMIN_PASSWORD"]
+  ]) {
+    await withDeployment({ SUPABASE_DB_ENABLED: "true", SUPABASE_URL: "http://127.0.0.1:1", SUPABASE_SERVICE_ROLE_KEY: "test-only", ...env }, async ({ origin, logs }) => {
+      const response = await fetch(`${origin}/health`);
+      const body = await response.json();
+      assert.equal(response.status, 503);
+      assert.equal(body.details.code, "ADMIN_CONFIGURATION_INVALID");
+      assert.deepEqual(body.details.fields, [field]);
+      assert.equal(body.details.retryable, false);
+      assert.equal(JSON.stringify(body).includes(env.ADMIN_PASSWORD), false);
+      assert.equal(logs().includes(env.ADMIN_PASSWORD), false);
+    });
+  }
 });

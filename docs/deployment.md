@@ -50,6 +50,7 @@ Vercel 함수의 파일시스템은 영구 DB 저장소로 사용할 수 없다.
 | --- | --- |
 | `DATABASE_CONFIGURATION_REQUIRED` | Supabase 활성화 여부와 URL·서비스 롤 키 설정을 확인한 뒤 재배포한다. |
 | `DATABASE_INITIALIZATION_FAILED` | DB 초기화와 관리자 초기 계정 설정을 확인한다. 원인 수정 후 다음 요청에서 재시도한다. |
+| `ADMIN_CONFIGURATION_INVALID` | `details.fields`에 표시된 관리자 환경 변수의 형식·비밀번호 정책을 수정하거나, 초기 계정 생성이 필요 없으면 관리자 이메일·비밀번호를 둘 다 제거하고 재배포한다. |
 | `DATABASE_UNAVAILABLE` | 프로젝트 연결, 테이블·권한·키 상태를 확인한다. 재시도 불가이면 설정을 먼저 수정한다. |
 
 `retryable=false`이면 같은 요청을 반복하기 전에 설정·권한 원인을 수정한다. 외부 DB 오류 본문이나 비밀값은 진단 응답·로그로 전달하지 않는다. 네트워크 요청과 응답 읽기는 10초 제한을 사용한다.
