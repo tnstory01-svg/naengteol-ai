@@ -11,7 +11,7 @@ for (const viewport of [
     await expect(page.locator("#recommendForm")).toBeVisible();
     await page.locator("#ingredientsText").fill("계란, 김치, 밥");
     await page.getByRole("button", { name: "냉장고 털기 시작" }).click();
-    await expect(page.locator("#recipes")).toBeVisible();
+    await expect(page.locator("#recipes .choose-recipe")).toHaveCount(3);
 
     const layout = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -34,6 +34,50 @@ for (const viewport of [
     }
   });
 }
+
+test("same-origin guest data and menu selection survive registration and a new login", async ({ page }, testInfo) => {
+  const email = `browser-${testInfo.project.name}-${Date.now()}@example.com`;
+  const password = "BrowserContract!234";
+  await page.goto("/");
+  await page.locator("#pantryName").fill("계란");
+  await page.locator("#pantryQuantity").fill("2개");
+  await page.locator("#pantryForm button[type=submit]").click();
+  await expect(page.locator("#pantryList")).toContainText("계란");
+  await page.locator("#ingredientsText").fill("계란, 김치, 밥");
+  const recommended = page.waitForResponse((response) => response.url().endsWith("/api/recommend") && response.request().method() === "POST");
+  await page.locator("#recommendForm button[type=submit]").click();
+  expect((await (await recommended).json()).meta.source).toBe("fallback");
+  await expect(page.locator("#recipes .choose-recipe")).toHaveCount(3);
+  await page.locator("#recipes .choose-recipe").first().click();
+  await expect(page.locator("#recipes .selection-status").first()).toContainText("선택 완료");
+
+  await page.goto("/me.html#register");
+  await page.locator("#registerEmail").fill(email);
+  await page.locator("#registerDisplayName").fill("브라우저 검증");
+  await page.locator("#registerPassword").fill(password);
+  await page.locator("#registerForm button[type=submit]").click();
+  await expect(page.locator("#sessionEmail")).toHaveText(email);
+  await expect(page.locator("#pantryList")).toContainText("계란");
+  await expect(page.locator("#historyList li")).toHaveCount(1);
+  const history = await page.locator("#historyList").innerText();
+  await page.reload();
+  await expect(page.locator("#sessionEmail")).toHaveText(email);
+  await page.locator("#logoutButton").click();
+  await expect(page.locator("#loginForm")).toBeVisible();
+  expect((await page.request.get("/api/recommendations")).status()).toBe(401);
+  await page.locator("#loginEmail").fill(email);
+  await page.locator("#loginPassword").fill(password);
+  await page.locator("#loginForm button[type=submit]").click();
+  await expect(page.locator("#sessionEmail")).toHaveText(email);
+  await expect(page.locator("#pantryList")).toContainText("계란");
+  await expect(page.locator("#historyList")).toHaveText(history);
+});
+
+test("health failure is never displayed as a ready database", async ({ page }) => {
+  await page.route("**/health", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "unavailable", details: { code: "DATABASE_UNAVAILABLE" } }) }));
+  await page.goto("/");
+  await expect(page.locator("#dbStatus")).toHaveText("DB 연결 불가");
+});
 
 for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }]) {
   test(`device-local tools persist at ${viewport.width}x${viewport.height}`, async ({ page }) => {

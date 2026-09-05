@@ -12,6 +12,42 @@ async function dbWith(value) {
   return { db: new LocalDatabase(file), dir };
 }
 
+test("owned CRUD preserves ordering, isolation, and persisted updates", async () => {
+  const { db, dir } = await dbWith({ pantryItems: [], userShortcuts: [] });
+  const guest = { userId: null, guestSessionId: "g1" };
+  const other = { userId: null, guestSessionId: "g2" };
+  const account = { userId: "u1", guestSessionId: null };
+  try {
+    for (const [id, owner, expiresAt, createdAt] of [
+      ["undated-old", guest, null, "2026-01-01"],
+      ["undated-new", guest, null, "2026-01-02"],
+      ["later", guest, "2026-02-02", "2026-01-01"],
+      ["first", guest, "2026-02-01", "2026-01-01"],
+      ["private", account, null, "2026-01-01"]
+    ]) {
+      await db.insertPantryItem({ id, ...owner, name: id, expiresAt, createdAt });
+    }
+    assert.deepEqual((await db.listPantryItems(guest)).map((item) => item.id), ["first", "later", "undated-new", "undated-old"]);
+    assert.equal(await db.updateOwnedPantryItem(other, "first", { name: "wrong" }), null);
+    assert.equal(await db.deleteOwnedPantryItem(guest, "private"), false);
+    await db.updateOwnedPantryItem(guest, "first", { quantity: "2" });
+    assert.equal(await db.deleteOwnedPantryItem(guest, "later"), true);
+    assert.equal(await db.deleteOwnedPantryItem(guest, "later"), false);
+
+    const shortcut = await db.recordShortcut({ ...guest, shortcutId: "quick", shortcutSnapshot: { title: "Quick meal" } });
+    await db.recordShortcut({ ...account, shortcutId: "quick", shortcutSnapshot: { title: "Account meal" } });
+    assert.equal(await db.deleteShortcut({ ...other, shortcutId: "quick" }), false);
+    assert.equal((await db.listShortcuts(guest)).length, 1);
+    assert.equal(await db.deleteShortcut({ ...guest, shortcutId: shortcut.id }), false);
+    assert.equal(await db.deleteShortcut({ ...guest, shortcutId: shortcut.shortcutId }), true);
+
+    const reopened = new LocalDatabase(db.filePath);
+    assert.equal((await reopened.listPantryItems(guest))[0].quantity, "2");
+    assert.deepEqual(await reopened.listShortcuts(guest), []);
+    assert.equal((await reopened.listShortcuts(account))[0].shortcutSnapshot.title, "Account meal");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test("migrates legacy data losslessly and adds v2 collections", async () => {
   const legacy = { users: [{ id: "u1" }], sessions: [], ipBlocks: [], pantryItems: [], recommendationLogs: [], savingsLogs: [{ userId: "u1", amount: "4" }] };
   const { db, dir } = await dbWith(legacy);
@@ -23,6 +59,21 @@ test("migrates legacy data losslessly and adds v2 collections", async () => {
     assert.deepEqual(data.guestSessions, []);
     assert.equal(data.savingsLogs[0].estimatedSavings, 4);
     assert.equal(data.savingsLogs[0].source, "legacy_exposure");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("shortcut ordering follows creation time and deletion uses only the stable shortcut ID", async () => {
+  const owner = { userId: "u1", guestSessionId: null };
+  const { db, dir } = await dbWith({ userShortcuts: [
+    { id: "row-new", shortcutId: "new", ...owner, createdAt: "2026-02-02" },
+    { id: "row-old", shortcutId: "old", ...owner, createdAt: "2026-02-01" },
+    { id: "other-row", shortcutId: "old", userId: "u2", createdAt: "2026-01-01" }
+  ] });
+  try {
+    assert.deepEqual((await db.listShortcuts(owner)).map((row) => row.shortcutId), ["old", "new"]);
+    assert.equal(await db.deleteShortcut({ ...owner, shortcutId: "row-old" }), false);
+    assert.equal(await db.deleteShortcut({ ...owner, shortcutId: "old" }), true);
+    assert.equal((await db.listShortcuts({ userId: "u2" })).length, 1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

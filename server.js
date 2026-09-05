@@ -25,6 +25,7 @@ loadEnv(path.join(__dirname, ".env"));
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
+const IS_DEPLOYED = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, "data", "app.db.json");
 const SUPABASE_URL = trimTrailingSlash(process.env.SUPABASE_URL || "");
@@ -73,70 +74,6 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml; charset=utf-8"
 };
 
-const RECOMMENDATION_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["recipes", "priorityIngredients", "summary"],
-  properties: {
-    recipes: {
-      type: "array",
-      minItems: 3,
-      maxItems: 3,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "name",
-          "reason",
-          "ownedIngredients",
-          "missingIngredients",
-          "cookTimeMinutes",
-          "difficulty",
-          "steps",
-          "estimatedSavings"
-        ],
-        properties: {
-          name: { type: "string" },
-          reason: { type: "string" },
-          ownedIngredients: {
-            type: "array",
-            items: { type: "string" }
-          },
-          missingIngredients: {
-            type: "array",
-            items: { type: "string" }
-          },
-          cookTimeMinutes: {
-            type: "integer",
-            minimum: 5,
-            maximum: 60
-          },
-          difficulty: {
-            type: "string",
-            enum: ["easy", "medium", "hard"]
-          },
-          steps: {
-            type: "array",
-            minItems: 3,
-            maxItems: 6,
-            items: { type: "string" }
-          },
-          estimatedSavings: {
-            type: "integer",
-            minimum: 1000,
-            maximum: 15000
-          }
-        }
-      }
-    },
-    priorityIngredients: {
-      type: "array",
-      items: { type: "string" }
-    },
-    summary: { type: "string" }
-  }
-};
-
 class HttpError extends Error {
   constructor(statusCode, message, details = undefined) {
     super(message);
@@ -145,13 +82,14 @@ class HttpError extends Error {
   }
 }
 
-const appReady = initializeApp();
+let appReady;
 
 export async function handleRequest(request, response) {
-  await appReady;
-
+  const requestId = randomUUID();
+  let requestPath = "/";
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    requestPath = url.pathname;
 
     if (url.pathname === "/health") {
       applyCors(request, response);
@@ -163,6 +101,9 @@ export async function handleRequest(request, response) {
         handleCorsPreflight(request, response);
         return;
       }
+
+      assertSafeRequestOrigin(request);
+      await ensureAppReady();
 
       const ipBlock = await resolveIpBlock(request);
       if (ipBlock) {
@@ -187,11 +128,11 @@ export async function handleRequest(request, response) {
       if (!enforceRateLimit(request, response, "api", 120, 60_000)) {
         return;
       }
-      assertSafeRequestOrigin(request);
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      await db.init();
+      await ensureAppReady();
+      if (db.provider === "supabase") await db.checkHealth();
       const groqConfigured = Boolean(process.env.GROQ_API_KEY && process.env.GROQ_MODEL);
       sendJson(response, 200, {
         ok: true,
@@ -326,14 +267,13 @@ export async function handleRequest(request, response) {
 
     sendJson(response, 405, { error: "Method not allowed" });
   } catch (error) {
-    handleError(response, error);
+    handleError(response, error, { requestId, path: requestPath });
   }
 }
 
 const server = http.createServer(handleRequest);
 
 if (isMainModule()) {
-  await appReady;
   server.listen(PORT, HOST, () => {
     const displayHost = HOST === "0.0.0.0" ? "localhost" : HOST;
     console.log(`자취생의 모든것 running at http://${displayHost}:${PORT}`);
@@ -341,8 +281,26 @@ if (isMainModule()) {
 }
 
 async function initializeApp() {
+  if (IS_DEPLOYED && db.provider !== "supabase") {
+    throw new HttpError(503, "서버 데이터베이스 설정이 필요합니다. 잠시 후 다시 이용해 주세요.", {
+      code: "DATABASE_CONFIGURATION_REQUIRED", retryable: false
+    });
+  }
   await db.init();
   await ensureAdminAccount();
+}
+
+async function ensureAppReady() {
+  if (!appReady) {
+    appReady = initializeApp().catch((error) => {
+      appReady = null;
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(503, "서버 데이터베이스를 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.", {
+        code: "DATABASE_INITIALIZATION_FAILED", retryable: true
+      });
+    });
+  }
+  await appReady;
 }
 
 function isMainModule() {
@@ -350,7 +308,7 @@ function isMainModule() {
 }
 
 async function handleGuestSession(request, response) {
-  if (typeof db.cleanupExpiredGuestSessions === "function") await db.cleanupExpiredGuestSessions();
+  await db.cleanupExpiredGuestSessions();
   const existing = await resolveGuestSession(request);
   if (existing) {
     sendJson(response, 200, { csrfToken: existing.csrfToken, expiresAt: existing.expiresAt });
@@ -363,9 +321,7 @@ async function handleGuestSession(request, response) {
     createdAt: now.toISOString(), lastSeenAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + GUEST_TTL_MS).toISOString(), revokedAt: null
   };
-  const guest = typeof db.createGuestSession === "function"
-    ? await db.createGuestSession(record)
-    : await db.mutate((data) => { data.guestSessions ||= []; data.guestSessions.push(record); return record; });
+  const guest = await db.createGuestSession(record);
   sendJson(response, 200, { csrfToken: guest.csrfToken, expiresAt: guest.expiresAt }, { "Set-Cookie": serializeGuestCookie(token, request) });
 }
 
@@ -374,8 +330,7 @@ async function resolveGuestSession(request) {
   if (!token || token.length < 30) return null;
   const tokenHash = hashSessionToken(token);
   const now = new Date().toISOString();
-  if (typeof db.findGuestSessionByTokenHash === "function") return db.findGuestSessionByTokenHash(tokenHash, now);
-  return db.get((data) => (data.guestSessions || []).find((row) => row.tokenHash === tokenHash && !row.revokedAt && new Date(row.expiresAt).getTime() > Date.now()) || null);
+  return db.findGuestSessionByTokenHash(tokenHash, now);
 }
 
 function assertGuestCsrf(request, guest) {
@@ -857,11 +812,7 @@ function clearAdminOverviewCache() {
 
 async function handlePantryList(request, response) {
   const owner = await requireRequestOwner(request, { requireCsrf: false });
-  const items = typeof db.listPantryItems === "function"
-    ? await db.listPantryItems(owner)
-    : typeof db.listPantryItemsByUserId === "function" && owner.userId
-      ? await db.listPantryItemsByUserId(owner.userId)
-      : await db.get((data) => data.pantryItems.filter((item) => owner.userId ? item.userId === owner.userId : item.guestSessionId === owner.guestSessionId).sort(comparePantryItems));
+  const items = await db.listPantryItems(owner);
   sendJson(response, 200, { items });
 }
 
@@ -869,43 +820,63 @@ async function handlePantryCreate(request, response) {
   const owner = await requireRequestOwner(request);
   const payload = asObject(await readJson(request, 16_000));
   const itemInput = normalizePantryInput(payload, { partial: false });
-  const existing = typeof db.listPantryItems === "function" ? await db.listPantryItems(owner) : await db.get((data) => data.pantryItems.filter((item) => owner.userId ? item.userId === owner.userId : item.guestSessionId === owner.guestSessionId));
+  const existing = await db.listPantryItems(owner);
   if (!owner.userId && existing.length >= 100) throw new HttpError(429, "게스트 재료는 최대 100개까지 저장할 수 있습니다.");
   const now = new Date().toISOString(); const id = randomUUID();
   const record = { id, stableId: normalizeShortText(payload.stableId, 100) || id, ownerId: owner.userId || owner.guestSessionId, userId: owner.userId, guestSessionId: owner.guestSessionId, ...itemInput, createdAt: now, updatedAt: now };
-  const item = typeof db.insertPantryItem === "function" ? await db.insertPantryItem(record) : await db.mutate((data) => { data.pantryItems.push(record); return record; });
+  const item = await db.insertPantryItem(record);
   sendJson(response, 201, { item });
 }
 
 async function handlePantryUpdate(request, response, itemId) {
-  const owner = await requireRequestOwner(request); const payload = asObject(await readJson(request, 16_000)); const itemInput = normalizePantryInput(payload, { partial: true }); const updatedAt = new Date().toISOString();
-  const item = typeof db.updateOwnedPantryItem === "function" ? await db.updateOwnedPantryItem(owner, itemId, { ...itemInput, updatedAt })
-    : typeof db.updatePantryItem === "function" && owner.userId ? await db.updatePantryItem(owner.userId, itemId, { ...itemInput, updatedAt })
-    : await db.mutate((data) => { const row=data.pantryItems.find((entry)=>entry.id===itemId&&(owner.userId?entry.userId===owner.userId:entry.guestSessionId===owner.guestSessionId)); if(!row)return null; Object.assign(row,itemInput,{updatedAt}); return row; });
-  if (!item) throw new HttpError(404, "재료를 찾을 수 없습니다."); sendJson(response, 200, { item });
+  const owner = await requireRequestOwner(request);
+  const payload = asObject(await readJson(request, 16_000));
+  const itemInput = normalizePantryInput(payload, { partial: true });
+  const item = await db.updateOwnedPantryItem(owner, itemId, {
+    ...itemInput, updatedAt: new Date().toISOString()
+  });
+  if (!item) throw new HttpError(404, "재료를 찾을 수 없습니다.");
+  sendJson(response, 200, { item });
 }
 
 async function handlePantryDelete(request, response, itemId) {
   const owner = await requireRequestOwner(request);
-  const deleted = typeof db.deleteOwnedPantryItem === "function" ? await db.deleteOwnedPantryItem(owner,itemId)
-    : typeof db.deletePantryItem === "function" && owner.userId ? await db.deletePantryItem(owner.userId,itemId)
-    : await db.mutate((data)=>{const before=data.pantryItems.length; data.pantryItems=data.pantryItems.filter((entry)=>!(entry.id===itemId&&(owner.userId?entry.userId===owner.userId:entry.guestSessionId===owner.guestSessionId))); return before!==data.pantryItems.length;});
-  if (!deleted) throw new HttpError(404, "재료를 찾을 수 없습니다."); sendJson(response, 200, { ok: true });
+  const deleted = await db.deleteOwnedPantryItem(owner, itemId);
+  if (!deleted) throw new HttpError(404, "재료를 찾을 수 없습니다.");
+  sendJson(response, 200, { ok: true });
 }
 
-async function handleShortcutList(request,response){ const owner=await requireRequestOwner(request,{requireCsrf:false}); const shortcuts=typeof db.listShortcuts==='function'?await db.listShortcuts(owner):await db.get((data)=>data.userShortcuts.filter((row)=>owner.userId?row.userId===owner.userId:row.guestSessionId===owner.guestSessionId)); sendJson(response,200,{shortcuts}); }
-async function handleShortcutCreate(request,response){ const owner=await requireRequestOwner(request); const payload=asObject(await readJson(request,8_000)); const shortcutId=normalizeShortText(payload.shortcutId,100)||randomUUID(); const shortcutSnapshot=asObject(payload.shortcutSnapshot); if(!Object.keys(shortcutSnapshot).length) throw new HttpError(400,"바로가기 정보가 필요합니다."); const existing=typeof db.listShortcuts==='function'?await db.listShortcuts(owner):await db.get((data)=>data.userShortcuts.filter((row)=>owner.userId?row.userId===owner.userId:row.guestSessionId===owner.guestSessionId)); if(!owner.userId&&existing.length>=50) throw new HttpError(429,"게스트 바로가기는 최대 50개까지 저장할 수 있습니다."); const now=new Date().toISOString(); const shortcut=typeof db.recordShortcut==='function'?await db.recordShortcut({...owner,shortcutId,shortcutSnapshot,createdAt:now,updatedAt:now}):await db.mutate((data)=>{const row={id:randomUUID(),ownerId:owner.userId||owner.guestSessionId,userId:owner.userId,guestSessionId:owner.guestSessionId,shortcutId,shortcutSnapshot,createdAt:now,updatedAt:now}; data.userShortcuts.push(row); return row;}); sendJson(response,201,{shortcut}); }
-async function handleShortcutDelete(request,response,shortcutId){ const owner=await requireRequestOwner(request); const deleted=typeof db.deleteShortcut==='function'?await db.deleteShortcut({...owner,shortcutId}):await db.mutate((data)=>{const before=data.userShortcuts.length; data.userShortcuts=data.userShortcuts.filter((row)=>!((row.shortcutId===shortcutId||row.id===shortcutId)&&(owner.userId?row.userId===owner.userId:row.guestSessionId===owner.guestSessionId))); return before!==data.userShortcuts.length;}); if(!deleted)throw new HttpError(404,"바로가기를 찾을 수 없습니다."); sendJson(response,200,{ok:true}); }
+async function handleShortcutList(request, response) {
+  const owner = await requireRequestOwner(request, { requireCsrf: false });
+  const shortcuts = await db.listShortcuts(owner);
+  sendJson(response, 200, { shortcuts });
+}
+
+async function handleShortcutCreate(request, response) {
+  const owner = await requireRequestOwner(request);
+  const payload = asObject(await readJson(request, 8_000));
+  const shortcutId = normalizeShortText(payload.shortcutId, 100) || randomUUID();
+  const shortcutSnapshot = asObject(payload.shortcutSnapshot);
+  if (!Object.keys(shortcutSnapshot).length) throw new HttpError(400, "바로가기 정보가 필요합니다.");
+  const existing = await db.listShortcuts(owner);
+  if (!owner.userId && existing.length >= 50) throw new HttpError(429, "게스트 바로가기는 최대 50개까지 저장할 수 있습니다.");
+  const now = new Date().toISOString();
+  const shortcut = await db.recordShortcut({ ...owner, shortcutId, shortcutSnapshot, createdAt: now, updatedAt: now });
+  sendJson(response, 201, { shortcut });
+}
+
+async function handleShortcutDelete(request, response, shortcutId) {
+  const owner = await requireRequestOwner(request);
+  const deleted = await db.deleteShortcut({ ...owner, shortcutId });
+  if (!deleted) throw new HttpError(404, "바로가기를 찾을 수 없습니다.");
+  sendJson(response, 200, { ok: true });
+}
 
 async function handleRecommendationHistory(request, response, url) {
   const auth = await requireSession(request);
   const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
-  const selections = typeof db.listMenuSelections === "function"
-    ? await db.listMenuSelections({ userId: auth.user.id, limit })
-    : await db.get((data) => (data.menuSelections || []).filter((row) => row.userId === auth.user.id).slice(-limit).reverse());
-  const totalSavings = typeof db.getRealizedSavingsTotal === "function"
-    ? await db.getRealizedSavingsTotal({ userId: auth.user.id })
-    : selections.reduce((sum, row) => sum + Number(row.realizedSavings || 0), 0);
+  const selections = await db.listMenuSelections({ userId: auth.user.id, limit });
+  const totalSavings = await db.getRealizedSavingsTotal({ userId: auth.user.id });
   sendJson(response, 200, { logs: selections, selections, totalSavings, legacySavingsExcluded: true });
 }
 
@@ -914,11 +885,7 @@ async function handleRecommend(request, response) {
   const payload = asObject(await readJson(request));
   const ingredients = normalizeIngredients(payload.ingredients, payload.ingredientsText);
   const preferences = normalizePreferences(payload.preferences);
-  const pantryItems = owner.auth
-    ? typeof db.listPantryItemsByUserId === "function"
-      ? await db.listPantryItemsByUserId(owner.userId)
-      : await db.get((data) => data.pantryItems.filter((item) => item.userId === owner.userId).sort(comparePantryItems))
-    : [];
+  const pantryItems = owner.auth ? await db.listPantryItems(owner) : [];
   const ingredientCheck = buildIngredientCheck({ inputIngredients: ingredients, pantryItems });
   const recommendationIngredients = ingredientCheck.recommendationIngredients;
   if (recommendationIngredients.length === 0) throw new HttpError(400, "재료를 한 가지 이상 입력해 주세요.");
@@ -1431,19 +1398,40 @@ function serveStatic(pathname, response, method = "GET") {
   else createReadStream(requestedPath).pipe(response);
 }
 
-function readJson(request, maxBytes = 64_000) {
+async function readJson(request, maxBytes = 64_000) {
+  if (Number(request.headers["content-length"]) > maxBytes) {
+    throw new HttpError(413, "요청 본문이 너무 큽니다.");
+  }
+
+  // Vercel consumes the stream before invoking /api handlers and exposes a body getter.
+  let parsedBody;
+  try { parsedBody = request.body; }
+  catch { throw new HttpError(400, "JSON 요청 형식이 올바르지 않습니다."); }
+  if (parsedBody !== undefined) {
+    const text = Buffer.isBuffer(parsedBody) ? parsedBody.toString("utf8")
+      : typeof parsedBody === "string" ? parsedBody : JSON.stringify(parsedBody);
+    if (Buffer.byteLength(text, "utf8") > maxBytes) throw new HttpError(413, "요청 본문이 너무 큽니다.");
+    try { return text.trim() ? JSON.parse(text) : {}; }
+    catch { throw new HttpError(400, "JSON 요청 형식이 올바르지 않습니다."); }
+  }
+  if (request.readableEnded) return {};
+
   return new Promise((resolve, reject) => {
-    let body = "";
+    const chunks = [];
+    let bytes = 0;
 
     request.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > maxBytes) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > maxBytes) {
         reject(new HttpError(413, "요청 본문이 너무 큽니다."));
-        request.destroy();
+        return;
       }
+      chunks.push(Buffer.from(chunk));
     });
 
     request.on("end", () => {
+      if (bytes > maxBytes) return;
+      const body = Buffer.concat(chunks).toString("utf8");
       if (!body.trim()) {
         resolve({});
         return;
@@ -1497,19 +1485,27 @@ function securityHeaders() {
   return headers;
 }
 
-function handleError(response, error) {
+function handleError(response, error, context) {
+  if (error.code === "DATABASE_UNAVAILABLE") {
+    error = new HttpError(503, "서버 데이터베이스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.", {
+      code: error.code, retryable: error.retryable
+    });
+  }
   if (error instanceof HttpError) {
+    const diagnostic = error.statusCode >= 500 ? { ...context, ...error.details } : error.details;
+    if (error.statusCode >= 500) console.error(JSON.stringify({ ...diagnostic, status: error.statusCode }));
     sendJson(response, error.statusCode, {
       error: error.message,
-      details: error.details
+      details: diagnostic
     });
     return;
   }
 
-  console.error(error);
+  console.error(JSON.stringify({ ...context, code: "INTERNAL_ERROR", status: 500 }));
   sendJson(response, 500, {
     error: "Unexpected server error",
-    detail: process.env.NODE_ENV === "production" ? undefined : error.message
+    details: { ...context, code: "INTERNAL_ERROR", retryable: false },
+    detail: IS_DEPLOYED ? undefined : error.message
   });
 }
 
@@ -2145,32 +2141,6 @@ function normalizeDate(value) {
   }
 
   return text;
-}
-
-function comparePantryItems(a, b) {
-  if (a.expiresAt && b.expiresAt && a.expiresAt !== b.expiresAt) {
-    return a.expiresAt.localeCompare(b.expiresAt);
-  }
-  if (a.expiresAt && !b.expiresAt) {
-    return -1;
-  }
-  if (!a.expiresAt && b.expiresAt) {
-    return 1;
-  }
-  return String(b.createdAt).localeCompare(String(a.createdAt));
-}
-
-function trimUserLogs(logs, userId, maxItems) {
-  const userLogs = logs
-    .filter((log) => log.userId === userId)
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-
-  const keep = new Set(userLogs.slice(0, maxItems).map((log) => log.id));
-  for (let index = logs.length - 1; index >= 0; index -= 1) {
-    if (logs[index].userId === userId && !keep.has(logs[index].id)) {
-      logs.splice(index, 1);
-    }
-  }
 }
 
 function loadEnv(envPath) {

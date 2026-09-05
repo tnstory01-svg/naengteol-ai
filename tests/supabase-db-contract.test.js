@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SupabaseDatabase } from "../lib/supabase-db.js";
+import { LocalDatabase } from "../lib/local-db.js";
 
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
@@ -15,6 +16,72 @@ function withMockFetch(handler, run) {
 function database() {
   return new SupabaseDatabase({ url: "https://example.supabase.co", serviceRoleKey: "test-service-role" });
 }
+
+test("both adapters reject missing or ambiguous CRUD owners before accessing storage", async () => {
+  for (const db of [new LocalDatabase("unused-invalid-owner.json"), database()]) {
+    for (const owner of [{}, { userId: "u1", guestSessionId: "g1" }]) {
+      for (const run of [
+        () => db.listPantryItems(owner),
+        () => db.insertPantryItem({ ...owner, name: "egg" }),
+        () => db.updateOwnedPantryItem(owner, "p1", { quantity: "2" }),
+        () => db.deleteOwnedPantryItem(owner, "p1"),
+        () => db.listShortcuts(owner),
+        () => db.recordShortcut({ ...owner, shortcutId: "quick" }),
+        () => db.deleteShortcut({ ...owner, shortcutId: "quick" })
+      ]) await assert.rejects(run, /exactly one owner/);
+    }
+  }
+});
+
+test("Supabase owned CRUD sends scoped queries and maps missing rows consistently", async () => {
+  for (const owner of [{ userId: "u1" }, { guestSessionId: "g1" }]) {
+    const column = owner.userId ? "user_id" : "guest_session_id";
+    const value = owner.userId || owner.guestSessionId;
+    const calls = [];
+    const db = database();
+    await withMockFetch(async (url, options) => {
+      const parsed = new URL(url);
+      assert.equal(parsed.searchParams.get(column), `eq.${value}`);
+      assert.equal(parsed.searchParams.has(owner.userId ? "guest_session_id" : "user_id"), false);
+      calls.push({ query: parsed.searchParams, method: options.method, body: options.body });
+      return jsonResponse([]);
+    }, async () => {
+      assert.deepEqual(await db.listPantryItems(owner), []);
+      assert.equal(calls.at(-1).query.get("order"), "expires_at.asc.nullslast,created_at.desc");
+      assert.equal(await db.updateOwnedPantryItem(owner, "p1", { quantity: "2" }), null);
+      assert.equal(calls.at(-1).method, "PATCH");
+      assert.equal(calls.at(-1).query.get("id"), "eq.p1");
+      assert.deepEqual(JSON.parse(calls.at(-1).body), { quantity: "2" });
+      assert.equal(await db.deleteOwnedPantryItem(owner, "p1"), false);
+      assert.equal(calls.at(-1).method, "DELETE");
+      assert.equal(calls.at(-1).query.get("id"), "eq.p1");
+      assert.deepEqual(await db.listShortcuts(owner), []);
+      assert.equal(calls.at(-1).query.get("order"), "created_at.asc");
+      assert.equal(await db.deleteShortcut({ ...owner, shortcutId: "quick" }), false);
+      assert.equal(calls.at(-1).query.get("shortcut_id"), "eq.quick");
+      assert.equal(calls.at(-1).query.has("id"), false);
+    });
+  }
+});
+
+test("pantry patches preserve omitted fields and allow explicit clearing", async () => {
+  const db = database();
+  for (const update of [
+    (patch) => db.updateOwnedPantryItem({ guestSessionId: "g1" }, "p1", patch),
+    (patch) => db.updatePantryItem("u1", "p1", patch)
+  ]) {
+    let body;
+    await withMockFetch(async (_url, options) => {
+      body = JSON.parse(options.body);
+      return jsonResponse([{ id: "p1", name: "egg", quantity: "", expires_at: null }]);
+    }, async () => {
+      await update({ quantity: "", expiresAt: null });
+      assert.deepEqual(body, { quantity: "", expires_at: null });
+      await update({ name: "egg", userId: "other", guestSessionId: "other", id: "other" });
+      assert.deepEqual(body, { name: "egg" });
+    });
+  }
+});
 
 test("selection uses one transaction-backed RPC and maps immutable snapshot", async () => {
   const calls = [];

@@ -72,8 +72,8 @@ Optional environment setup:
 cp .env.example .env
 ```
 
-Fill `GROQ_API_KEY` and `GROQ_MODEL` to use AI recommendations. Leave them
-empty to use the deterministic demo fallback.
+Groq is intentionally disabled for the current release. Keep `GROQ_API_KEY`
+and `GROQ_MODEL` empty to use deterministic fallback recommendations.
 
 Authentication and pantry data are stored server-side in `./data/app.db.json`
 by default. The file is ignored by Git. Passwords are stored as scrypt hashes,
@@ -90,7 +90,8 @@ and browser sessions use an HttpOnly cookie plus CSRF tokens.
 - Supabase can be used as the primary server-side database through the REST API.
 - Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_DB_ENABLED=true`
   after running `supabase/schema.sql`.
-- Leave Supabase values empty to keep using the local JSON DB at `./data/app.db.json`.
+- Local development can use the JSON DB at `./data/app.db.json` with Supabase values empty.
+- Production and Vercel require Supabase; missing settings return 503 without writing a local DB.
 - When `SUPABASE_DB_ENABLED=false`, Supabase can still receive recommendation
   logs through `SUPABASE_RECOMMENDATION_TABLE` and `SUPABASE_SAVINGS_TABLE`.
 - Database setup SQL is in `supabase/schema.sql`.
@@ -105,7 +106,7 @@ Deployment-ready files are included:
 - `Procfile`
 - `public/` for static GitHub Pages deployment
 
-GitHub Pages runs the static `public/` app at
-`https://tnstory01-svg.github.io/naengteol-ai/`. Server features still require
-the Node backend. See `docs/deployment.md` for deployment settings and
-environment variables.
+The current deployment is [the Vercel app](https://hackerton-project1.vercel.app/).
+The frontend and `/api/*` use the same origin. GitHub Pages remains an optional
+static deployment with a separate backend. See [deployment settings](docs/deployment.md)
+and the [implementation plan](docs/implementation-plan.md) for remaining work.

@@ -1,73 +1,39 @@
-# 외부 배포·기능 복구 체크리스트
+# Vercel 기능 복구 체크리스트
 
-구현 설명이나 브라우저 데모 목록은 제외하고, 공개 배포 전에 운영자가 수행할 작업만 기록한다.
+대상은 <https://hackerton-project1.vercel.app/>이다. Groq는 제외하고 계정·DB·fallback 추천 흐름을 복구한다. 환경 변수와 DB 준비 절차는 [배포 설정](deployment.md)을 따른다.
 
-## 1. Node 백엔드 배포
+## 1. 배포와 API
 
-- `server.js`를 HTTPS가 제공되는 백엔드(Render, Railway 등)에 배포한다.
-- 시작 명령은 `node server.js`, 바인딩 주소는 `0.0.0.0`으로 설정한다.
-- 플랫폼이 제공하는 `PORT`를 사용하고 `/health` 헬스 체크를 등록한다.
-- 배포 후 `GET https://<backend-domain>/health`가 HTTP 200과 함께 다음을 반환해야 한다.
-  - `ok: true`
-  - `groqConfigured: true`
-  - `supabaseDatabaseConfigured: true`
+- GitHub `main`의 검증된 커밋이 Vercel Production 배포에 반영됐는지 SHA를 비교한다.
+- `/`, `/me.html`, `/tools.html`, `/runtime-config.js`가 정상 제공되는지 확인한다.
+- `/health`가 200이고 `supabaseDatabaseConfigured=true`, `localDbConfigured=false`, `groqConfigured=false`인지 확인한다.
+- 503이면 `details.code`와 요청 ID로 설정·연결 문제를 확인한다. 로컬 JSON이나 `/tmp`로 운영 데이터를 대체하지 않는다.
 
-## 2. 비밀값 및 운영 환경 설정
+## 2. 실제 저장과 계정
 
-백엔드 호스트의 Secret/Environment 설정에만 다음 값을 등록한다. 실제 값은 저장소, Pages 정적 파일, 공개 문서, 브라우저 설정에 넣지 않는다.
+전용 검증 계정을 사용한다. 운영 사용자 데이터는 변경하지 않는다.
 
-```text
-NODE_ENV=production
-HOST=0.0.0.0
-PORT=<platform-provided>
-SESSION_COOKIE_SECURE=true
-GROQ_API_KEY=<secret>
-GROQ_MODEL=<current-provider-model>
-GROQ_API_BASE_URL=<current-provider-api-base>
-GROQ_MAX_TOKENS=<approved-limit>
-SUPABASE_DB_ENABLED=true
-SUPABASE_URL=<project-url>
-SUPABASE_SERVICE_ROLE_KEY=<secret>
-SUPABASE_SCHEMA=public
-SUPABASE_MAX_ROWS=<approved-limit>
-```
+1~4번은 같은 브라우저의 같은 게스트 세션에서 연속 수행한다. 신규 검증 계정 기준으로 병합 후 재료 1개와 메뉴 선택 1개가 남고 중복되지 않아야 한다.
 
-- `GROQ_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, 관리자 비밀번호와 `.env`는 서버에서만 읽히는지 확인한다.
-- 로그, 오류 응답, 클라이언트 번들에 비밀값이 노출되지 않아야 한다.
+1. 게스트로 재료를 추가·수정하고 새로고침 후 같은 재료를 다시 조회한다.
+2. 재료를 입력해 fallback 추천을 받는다. 외부 AI 응답으로 표시하지 않으며 `meta.source=fallback`을 확인한다.
+3. 메뉴 하나를 선택하고 같은 요청 재전송 시 중복 절약 내역이 생기지 않는지 확인한다.
+4. 회원가입 후 게스트 재료와 메뉴 선택이 계정에 병합되는지 확인한다.
+5. 로그아웃·로그인·새로고침 후 같은 재료와 내역이 남는지 확인한다. 이 결과가 있어야 Supabase 영구 저장 확인으로 기록한다.
+6. 로그아웃 후 계정 전용 내역 요청은 401이어야 한다. 다른 계정·게스트의 재료나 내역을 조회·수정할 수 없어야 한다.
 
-## 3. 현재 Supabase 스키마·마이그레이션 적용
+## 3. 화면과 권한
 
-- 사용할 Supabase 프로젝트를 확정한다.
-- 저장소의 현재 `supabase/schema.sql`과 `supabase/migrations/`를 기준으로 운영 DB에 적용한다. 이미 적용된 변경은 중복 실행하지 말고, 적용 순서와 성공 결과를 기록한다.
-- 백엔드에는 `SUPABASE_URL`과 서비스 롤 키만 등록하고 서비스 롤 키는 브라우저에 전달하지 않는다.
-- 적용 후 실제 운영 DB에서 계정·세션·팬트리·추천 이력에 필요한 테이블과 권한이 존재하는지 확인한다.
+- 모바일 360/390px에서 추천·재료·계정·생활도구를 조작하고 가로 넘침을 확인한다.
+- 장보기·메모는 현재 기기의 브라우저 저장소에 남는지 확인한다. 계정 간 동기화로 표현하지 않는다.
+- 일반 사용자로 관리자 API가 거부되는지 확인한다. 관리자 목록·차단 IP·역할 정보가 반환되면 통과 처리하지 않는다.
+- 브라우저 쿠키의 HttpOnly·Secure 속성과 CSRF 누락 요청 거부를 확인한다.
+- API 실패를 DB 준비 완료로 표시하지 않는지 확인한다.
 
-## 4. GitHub Pages API 연결 및 쿠키
+## 4. 완료 기록과 롤백
 
-분리된 Pages/API origin 배포는 현재 구현만으로 완료되지 않는다. `server.js`가 현재 동일 호스트 origin만 허용하고 세션·게스트 쿠키를 `SameSite=Lax`로 직렬화하므로, 아래 코드 변경과 테스트를 먼저 완료해야 한다. 가능하면 같은 origin으로 호스팅해 이 교차 사이트 복잡성을 피한다.
-
-분리 origin을 선택할 때 남은 코드 작업:
-
-- Pages 배포 설정에 `https://<backend-domain>`을 API base로 지정한다. API 키나 서비스 롤 키는 설정하지 않는다.
-- 환경 설정으로 정확한 Pages origin(예: `https://tnstory01-svg.github.io`)을 받도록 CORS와 CSRF/origin 검증을 변경한다. 허용 목록 밖 origin은 거부하고, 허용 origin과 거부 origin 각각을 테스트한다.
-- credentialed 요청 응답에 `Access-Control-Allow-Credentials: true`와 정확한 `Access-Control-Allow-Origin`을 추가하고, `OPTIONS` preflight를 처리하도록 변경한다. 허용 origin의 preflight 성공과 허용 목록 밖 preflight 거부를 테스트한다.
-- 세션 쿠키와 게스트 쿠키 모두에 운영 설정 가능한 `SameSite=None; Secure`를 적용한다. 개발 환경 기본값과 운영 값을 각각 테스트하고, 두 쿠키의 `Set-Cookie` 속성을 검증한다.
-- 위 CORS, CSRF/origin, credentialed preflight/응답 헤더, 두 쿠키 설정 변경을 실제 배포 전에 각각 회귀 테스트로 통과시킨다.
-- Pages에서 API 요청이 백엔드로 향하고, 브라우저 응답에 서버 비밀값이 포함되지 않는지 확인한다.
-
-## 5. 운영 확인
-
-다음 시나리오를 별도 일반 사용자 계정으로 수행하고 결과를 기록한다.
-
-1. Pages에서 회원가입·로그인·로그아웃을 수행한다. 새로고침 뒤에도 세션 상태가 유지되고, 로그아웃 후 보호 요청이 401이 되어야 한다.
-2. 팬트리 항목을 추가·조회한 뒤 새로고침하고 다시 로그인해도 동일 항목이 남아 있어야 한다.
-3. 현재 연결된 AI 제공자에 추천을 요청한다. 성공 응답이 반환되고 추천 이력이 저장되어야 하며, 제공자 키는 네트워크 응답에 없어야 한다.
-4. 일반 사용자로 `/api/admin/*`에 직접 요청한다. 모든 관리자 기능이 401 또는 403이어야 하고 사용자 목록·차단 IP·역할 정보가 노출되지 않아야 한다.
-5. 관리자 계정으로만 필요한 관리자 기능이 성공하는지 확인한다.
-
-## 6. 롤백·안전 확인
-
-- 배포 직전 현재 정상 백엔드 버전, Pages 버전, Supabase 스키마/마이그레이션 상태를 기록한다.
-- 새 배포가 `/health` 실패, 인증 실패, 데이터 손실, 비밀값 노출을 일으키면 즉시 이전 백엔드와 Pages 버전으로 되돌리고, 호환되지 않는 DB 변경은 실행하지 않는다.
-- 롤백 후 `/health`, 로그인, 팬트리 조회를 다시 확인한다.
-- `.env`, `data/`, 실제 API 키, 실제 관리자 비밀번호가 추적 파일과 `public/`에 없고, 서비스 롤 키가 서버 환경 변수에만 존재하는지 최종 점검한다.
+- 배포 SHA, 실행 시각, URL, 성공·실패 시나리오와 미확인 항목을 [구현 계획](implementation-plan.md)에 기록한다.
+- 로컬 JSON·대체 DB 테스트 통과를 실제 Supabase 검증으로 대체하지 않는다.
+- 배포 전 정상 버전과 DB 마이그레이션 상태를 기록한다. 새 배포에서 인증·저장·권한 문제가 발생하면 이전 정상 Vercel 배포로 되돌린다.
+- DB 변경이 이전 앱 버전과 호환되지 않으면 앱만 롤백하지 않는다. 배포를 중단하고 DB 백업·복구 절차를 확정한 뒤 복구한다. 이번 코드 변경에는 새로운 스키마 변경이 없다.
+- Groq 재연결과 성능 검증은 사용자가 요청할 때 별도 작업으로 진행한다.

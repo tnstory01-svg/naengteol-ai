@@ -17,8 +17,6 @@ const homeCost = document.querySelector("#homeCost");
 const savingsBarFill = document.querySelector("#savingsBarFill");
 const priorityIngredients = document.querySelector("#priorityIngredients");
 const authEntry = document.querySelector("#authEntry");
-const loginForm = document.querySelector("#loginForm");
-const registerForm = document.querySelector("#registerForm");
 const sessionPanel = document.querySelector("#sessionPanel");
 const accountEmail = document.querySelector("#accountEmail");
 const accountName = document.querySelector("#accountName");
@@ -465,24 +463,6 @@ await hydrateHealth();
 await hydrateSession();
 
 function bindEvents() {
-  document.querySelectorAll("[data-auth-tab]").forEach((button) => {
-    button.addEventListener("click", () => switchAuthTab(button.dataset.authTab));
-  });
-
-  if (loginForm) {
-    loginForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      await submitAuthForm(loginForm, "/api/auth/login", "로그인되었습니다.");
-    });
-  }
-
-  if (registerForm) {
-    registerForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      await submitAuthForm(registerForm, "/api/auth/register", "계정이 생성되었습니다.");
-    });
-  }
-
   logoutButton.addEventListener("click", async () => {
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
@@ -597,6 +577,7 @@ async function hydrateGuestSession() {
   try {
     const response = await fetch(apiUrl("/api/guest/session"), { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
     const data = await response.json();
+
     if (!response.ok) throw new Error(data.error || "게스트 세션을 시작하지 못했습니다.");
     state.guestCsrfToken = data.csrfToken;
   } catch (error) {
@@ -609,11 +590,19 @@ async function hydrateHealth() {
     const response = await fetch(apiUrl("/health"), { credentials: "include" });
     const data = await response.json();
 
+    if (!response.ok || !data.ok) {
+      aiStatus.textContent = "서비스 연결 확인 필요";
+      aiStatus.className = "status-pill fallback";
+      dbStatus.textContent = "DB 연결 불가";
+      dbStatus.className = "status-pill fallback";
+      return;
+    }
+
     const aiReady = Boolean(data.groqConfigured || data.aiConfigured);
     aiStatus.textContent = aiReady ? "Groq 연결 준비" : "Fallback 데모 모드";
     aiStatus.className = `status-pill ${aiReady ? "ready" : "fallback"}`;
 
-    const dbReady = data.localDbConfigured || data.supabaseConfigured;
+    const dbReady = data.localDbConfigured || data.supabaseDatabaseConfigured;
     dbStatus.textContent = data.supabaseDatabaseConfigured
       ? "Supabase DB 준비"
       : data.supabaseConfigured
@@ -623,7 +612,7 @@ async function hydrateHealth() {
   } catch {
     aiStatus.textContent = "정적 데모 모드";
     aiStatus.className = "status-pill fallback";
-    dbStatus.textContent = "브라우저 저장소";
+    dbStatus.textContent = "서버 연결 불가";
     dbStatus.className = "status-pill fallback";
   }
 }
@@ -663,28 +652,6 @@ async function hydrateProtectedData() {
     state.adminOverview = overview;
   } else {
     state.adminOverview = null;
-  }
-}
-
-async function submitAuthForm(targetForm, endpoint, successMessage) {
-  const payload = Object.fromEntries(new FormData(targetForm).entries());
-  setFormLoading(targetForm, true);
-  setAuthMessage("", false);
-
-  try {
-    const data = await apiFetch(endpoint, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-    applyAuthState(data);
-    await hydrateProtectedData();
-    renderAll();
-    setAuthMessage(successMessage, false);
-    targetForm.reset();
-  } catch (error) {
-    setAuthMessage(formatError(error), true);
-  } finally {
-    setFormLoading(targetForm, false);
   }
 }
 
@@ -1444,18 +1411,6 @@ async function selectRecipe(recommendationId, recipe, article) {
     status.textContent = formatError(error);
     status.classList.add("error");
   }
-}
-
-function switchAuthTab(tab) {
-  if (!loginForm || !registerForm) {
-    return;
-  }
-  const isRegister = tab === "register";
-  loginForm.classList.toggle("hidden", isRegister);
-  registerForm.classList.toggle("hidden", !isRegister);
-  document.querySelectorAll("[data-auth-tab]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.authTab === tab);
-  });
 }
 
 function setAuthMessage(text, isError) {

@@ -1,3 +1,4 @@
+# Environment values and database setup: docs/deployment.md
 services:
   - type: web
     name: fridge-ingredients
@@ -11,10 +12,12 @@ services:
         value: production
       - key: HOST
         value: 0.0.0.0
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_API_KEY
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: FRONTEND_ORIGIN
         sync: false
+      - key: SUPABASE_DB_ENABLED
+        value: "true"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
