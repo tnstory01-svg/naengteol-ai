@@ -1,6 +1,6 @@
 # 재료·요리 콘텐츠 개선
 
-Understood as (2026-09-13): 영문 페이지와 본격적인 프론트 개편 전에 기존 식재료·요리 자료를 인터넷 출처 및 DB 구조·저장 내용과 대조해 수정하고, 재료별 내용을 별도 HTML 상세 페이지로 제공한다. 이전 콘텐츠 품질 작업의 마무리·검증·운영 반영까지 이어간다. 144개 전체 메뉴의 내용 텍스트 대조는 Sol이 2026-09-13 완료했으며, 조리 시험은 수행하지 않았다. 운영 배포 반영은 아직 미완료다. Git commit·push는 보류하고 Groq 호출·설정은 계속 제외한다. 계획·출처 검토는 root, 구현은 Sol high, 반복 점검·디버깅은 Luna max가 담당한다.
+Understood as (2026-09-13): 영문 페이지와 본격적인 프론트 개편 전에 기존 식재료·요리 자료를 인터넷 출처 및 DB 구조·저장 내용과 대조해 수정하고, 재료별 내용을 별도 HTML 상세 페이지로 제공한다. 이전 콘텐츠 품질 작업의 마무리·검증·운영 반영까지 이어간다. 144개 전체 메뉴의 내용 텍스트 대조와 운영 배포·검증을 완료했으며, 조리 시험은 수행하지 않았다. 구현 커밋은 `2168972`이고 GitHub push는 보류했다. Groq 호출·설정은 계속 제외한다. 계획·출처 검토는 root, 구현은 Sol high, 반복 점검·디버깅은 Luna max가 담당한다.
 
 ## 수정 범위와 완료 조건
 
@@ -51,17 +51,17 @@ DB 스키마에서 `pantry_items`는 사용자 보유 재료이고, `recommendat
 
 ## 검증 상태
 
-2026-09-13 재개 후 `npm test` 32개, `npm run test:api` 26개, `npm run test:pwa` 5개가 통과했다. SQL 2개와 로컬 브라우저 30개는 이전 실행의 통과 기록이며 이번에 재실행하지 않았다. 브라우저 증거는 `C:/Users/김동욱/AppData/Local/Temp/naengteol-content-browser-95Y1kZ/browser-results`에 있다. 재료 페이지 검사는 360/390px에서 각 화면 크기의 목록·검색·상세 흐름과 48개 상세 페이지의 메뉴 3개·콘솔 오류 없음을 확인했다. 390px의 긴 목록 스크린샷은 기기 픽셀 배율 때문에 이미지 크기 제한에 걸려 CSS 픽셀 기준으로 저장한다. 상세 페이지 캡처에서도 재료량·도구·순서·출처가 카드 안에 표시되는지 확인했다.
+2026-09-13 커밋 전 재검증에서 `npm test` 32개, `npm run test:api` 26개, `npm run test:pwa` 5개, `npm run test:sql` 2개, 로컬 브라우저 30개가 모두 통과했다. 로컬 브라우저 산출물은 `C:/Windows/Temp/naengteol-commit-browser`에 있다. 재료 페이지 검사는 360/390px에서 각 화면 크기의 목록·검색·상세 흐름과 48개 상세 페이지의 메뉴 3개·콘솔 오류 없음을 확인했다. 390px의 긴 목록 스크린샷은 기기 픽셀 배율 때문에 이미지 크기 제한에 걸려 CSS 픽셀 기준으로 저장한다. 상세 페이지 캡처에서도 재료량·도구·순서·출처가 카드 안에 표시되는지 확인했다.
 
 콘텐츠 검사는 기본 `npm test`에 포함한다. 보유·부족 배열이 없는 정적 원본을 검사하던 빈 검사는 실제 API 계약 검사로 교체했다. 임시 DB에 `달걀`을 저장하고 `계란·김치·밥`을 입력해 보유·입력·부족 분류를 확인하며, 각 분류가 실제로 등장해야 통과한다. 추천의 조리 시간이 원본과 같고 DB 파일에 조리법이 저장되며, 메뉴 선택 재조회에서도 재료·단계·출처가 유지되는지 검사한다. 이는 API 전달·저장 계약을 검증하며, 반환된 필수 재료 목록 자체의 요리 정확성은 별도 콘텐츠 검토 대상이다.
 
-기존 회원가입·로그인·게스트 가져오기·저장 응답 유실·후속 조회 실패를 포함한 전체 모바일 회귀 검사 30개도 위 브라우저 검사에 포함해 통과했다. 실행은 별도 임시 DB와 동적 포트로 격리했다. 구문 검사와 `git diff --check`도 통과했다. 144개 전체 메뉴의 내용 텍스트 대조는 2026-09-13 완료했지만 조리 시험은 수행하지 않았다. 이번 콘텐츠 수정본의 운영 반영 확인은 남아 있다. 기존 운영 복구 기록을 콘텐츠 배포 증거로 사용하지 않는다.
+기존 회원가입·로그인·게스트 가져오기·저장 응답 유실·후속 조회 실패를 포함한 전체 모바일 회귀 검사 30개도 위 브라우저 검사에 포함해 통과했다. 실행은 별도 임시 DB와 동적 포트로 격리했다. 구문 검사와 `git diff --check`도 통과했다. 144개 전체 메뉴의 내용 텍스트 대조는 2026-09-13 완료했지만 조리 시험은 수행하지 않았다.
 
-운영 반영은 Vercel 작성자 권한으로 차단됐다(2026-09-13 16시대 KST). 이번에 확인한 기존 운영 배포는 `dpl_6wjLWwrnNrZBo38qo7x64RjUtNdP`다. `food-catalog.js`, `recipe-specs.js`, `ingredient.js`, `ingredients.js`, `ingredient.html`, `ingredients.html`은 모두 HTTP 404이고, `app.js`, `index.html`, `styles.css`도 로컬 수정본과 다르다. Luna의 운영 WebKit 검사는 360px 목록 접근에서 404로 중단됐으며, 운영 모바일 검증을 통과한 것으로 기록하지 않는다. 실패 증거는 `test-results/content-production-smoke-2026-09-13T07-37-05-720Z`에 있다. 이번 재개에서는 운영 API 쓰기 검사를 실행하지 않았다.
+운영 반영 완료(2026-09-13): 커밋 작성자 이메일을 GitHub와 Vercel에서 이미 인증된 `tnstory01@gmail.com`으로 맞춘 구현 커밋 `2168972`를 기반으로 배포했다. 배포 ID는 [`dpl_Cz363G79G4mKJJ7iLBVGC9LENXyx`](https://vercel.com/dongwook-hobby-projects1/hackerton-project1/Cz363G79G4mKJJ7iLBVGC9LENXyx), 상태는 `READY`이며 `https://hackerton-project1.vercel.app`에 연결됐다. `app.js`, `food-catalog.js`, `recipe-specs.js`, `ingredient.js`, `ingredients.js`, `ingredient.html`, `ingredients.html`, `index.html`, `styles.css` 9개는 로컬 파일과 일치했다.
 
-로컬 수정본을 CLI로 업로드한 배포는 [`dpl_GA4zAvsXkpjzSr7NEu1hmTNcvw1a`](https://vercel.com/dongwook-hobby-projects1/hackerton-project1/GA4zAvsXkpjzSr7NEu1hmTNcvw1a)다. 기반 커밋은 `4cbb58f`, 작성자는 `tnstory01-svg`이며 미커밋 수정본을 업로드했다. Vercel API의 `readyState=BLOCKED`, `readyStateReason`은 커밋 작성자에게 이 프로젝트의 배포 권한이 없다는 내용이다. CLI 일반 출력의 `UNKNOWN`은 성공이나 단순 대기로 해석하지 않는다. Git commit·push, 작성자 변경, 권한 변경은 수행하지 않았다.
+운영 WebKit 검사는 360/390px 두 화면에서 목록 48개, 상세 페이지 96개, 레시피 카드 288개, 콘솔 오류 없음과 가로 넘침 없음을 확인했다. 최초 실행은 배포 직후 세션 조회 503으로 중단됐지만 즉시 세션 HTTP 200을 확인했고, 전체 재실행이 통과했다. 성공 증거는 `test-results/content-production-smoke-2026-09-13T08-11-01-392Z`에 있다.
 
-다음 작업은 사용자가 `dongwook-hobby-projects1` 프로젝트 소유자의 Vercel Account Settings → Login Connections에서 커밋 작성자 `tnstory01-svg`의 GitHub 연결과 권한을 확인하는 것이다. CLI 로그인 이름도 `tnstory01-svg`로 확인됐지만 배포 권한 판정은 실패했다. [Vercel 공식 문제 해결 안내](https://vercel.com/docs/deployments/troubleshoot-project-collaboration)에 따라 Git 제공자 연결과 커밋 이메일 연결을 확인한다. 이번 세션에는 연결된 관리 브라우저가 없어 계정 연결을 확인하거나 수정하지 못했다. 권한 해결 후 `npx.cmd vercel --prod --yes`로 현재 작업 트리를 배포하고 `node test-results/content-asset-check.mjs`, `node test-results/content-production-smoke.mjs`, `node test-results/content-production-api.mjs` 순서로 운영 파일 9개 일치·360/390px 각각 상세 48개·저장을 검증한다. 임시 검사 파일이 없다면 기존 검사 계약에 맞춰 복원한다.
+운영 API 검사는 `/health` HTTP 200과 `groqConfigured=false`를 확인했다. 실제 Supabase에서 게스트 생성, 재료 생성·재조회·삭제, fallback 추천 3개와 명시 사양 일치, 보유·입력·부족 분류 분리, 메뉴 선택 201과 동일 요청 재전송 200·동일 선택 ID·스냅샷 보존을 통과했다. 검사용 재료는 삭제했고 추천·선택은 기존 게스트 만료 정책을 따른다. GitHub에는 아직 push하지 않았다.
 
 정적 검사는 원래 재료 48개와 메뉴 144개의 누락 여부, 주요 메뉴의 필수 재료와 조리 방식을 확인한다. 카탈로그와 사양이 같다는 검사만으로 요리법 자체가 올바르다고 판정하지 않는다.
 

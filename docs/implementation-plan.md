@@ -1,6 +1,6 @@
 # 구현 및 배포 계획
 
-Understood as (2026-09-08): 인증이 준비된 Supabase·Vercel에서 이전 작업을 이어 운영 오류를 복구하고, 검증된 로컬 수정본을 배포해 실제 저장·계정 흐름까지 확인한다. 기존 데이터와 Groq 제외 방침을 보존한다. Git commit·push·merge·release는 기존 보류 방침을 유지한다.
+Understood as (2026-09-08): 인증이 준비된 Supabase·Vercel에서 이전 작업을 이어 운영 오류를 복구하고, 검증된 로컬 수정본을 배포해 실제 저장·계정 흐름까지 확인한다. 기존 데이터와 Groq 제외 방침을 보존한다. 콘텐츠 구현 커밋 `2168972`를 만들었고 push·merge·release는 보류한다.
 
 - 서비스: <https://hackerton-project1.vercel.app/>
 - 저장소: <https://github.com/tnstory01-svg/naengteol-ai>, `main`
@@ -9,6 +9,7 @@ Understood as (2026-09-08): 인증이 준비된 Supabase·Vercel에서 이전 �
 
 ## 현재 운영 상태 · 2026-09-08
 
+- 2026-09-13 콘텐츠 배포 `dpl_Cz363G79G4mKJJ7iLBVGC9LENXyx`가 `READY`이며 운영 별칭에 연결됐다. 기반 커밋은 `2168972`다. 정적 파일 9개 일치, 360/390px WebKit의 재료 48개·상세 96개, 실제 Supabase 게스트 재료·fallback 추천·선택 멱등성 검증을 통과했다. 상세 결과는 [콘텐츠 조사](content-research.md)에 기록했다. GitHub에는 push하지 않았다.
 - 운영 복구와 CLI 배포 완료. 배포 ID는 `dpl_GNUNuDN7ffjKg2xpMUweZPWTAJny`, 상태는 `READY`다. 기반 커밋은 `4cbb58f`이며 현재 작업 트리의 미커밋 수정본을 배포했다. GitHub `main`에는 이번 변경을 푸시하지 않았다. 운영 `app.js`, `me.js`, `me.html`과 로컬 파일이 일치하는지 직접 비교했다.
 - 장애 원인은 운영 DB의 게스트 테이블·RPC 누락이었다. 오류 로그의 upstream 404와 실제 스키마 조회로 확인했다. `202607110001`, `202609080001` 두 마이그레이션을 적용했고 원격 적용 이력도 확인했다. 전체 초기화는 하지 않았다.
 - 앱 테이블 13개에서 RLS가 활성화됐고 `anon`·`authenticated`의 직접 테이블 접근과 앱 RPC 실행 권한이 없음을 조회했다. 앱 RPC의 `service_role` 실행 권한은 유지됐다.
