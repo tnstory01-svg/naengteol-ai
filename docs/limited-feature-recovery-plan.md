@@ -4,7 +4,7 @@
 
 ## 1. 배포와 API
 
-- GitHub `main`의 검증된 커밋이 Vercel Production 배포에 반영됐는지 SHA를 비교한다.
+- GitHub 배포는 커밋 SHA를 비교한다. 로컬 CLI 배포는 배포 ID와 기반 커밋·미커밋 상태를 기록하고 운영 정적 파일을 검증한 로컬 파일과 비교한다.
 - `/`, `/me.html`, `/tools.html`, `/runtime-config.js`가 정상 제공되는지 확인한다.
 - `/health`가 200이고 `supabaseDatabaseConfigured=true`, `localDbConfigured=false`, `groqConfigured=false`인지 확인한다.
 - 503이면 `details.code`와 요청 ID로 설정·연결 문제를 확인한다. 로컬 JSON이나 `/tmp`로 운영 데이터를 대체하지 않는다.
@@ -35,5 +35,5 @@
 - 배포 SHA, 실행 시각, URL, 성공·실패 시나리오와 미확인 항목을 [구현 계획](implementation-plan.md)에 기록한다.
 - 로컬 JSON·대체 DB 테스트 통과를 실제 Supabase 검증으로 대체하지 않는다.
 - 배포 전 정상 버전과 DB 마이그레이션 상태를 기록한다. 새 배포에서 인증·저장·권한 문제가 발생하면 이전 정상 Vercel 배포로 되돌린다.
-- DB 변경이 이전 앱 버전과 호환되지 않으면 앱만 롤백하지 않는다. 배포를 중단하고 DB 백업·복구 절차를 확정한 뒤 복구한다. 이번 코드 변경에는 새로운 스키마 변경이 없다.
+- DB 변경이 이전 앱 버전과 호환되지 않으면 앱만 롤백하지 않는다. 배포를 중단하고 DB 백업·복구 절차를 확정한 뒤 복구한다. 게스트 스키마와 보안·세션 정리 마이그레이션은 [배포 설정](deployment.md)의 절차와 실제 적용 이력을 따른다.
 - Groq 재연결과 성능 검증은 사용자가 요청할 때 별도 작업으로 진행한다.

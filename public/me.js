@@ -1,5 +1,5 @@
 const API_BASE_URL = String(window.NAENGTEOL_API_BASE_URL || "").replace(/\/+$/, "");
-const state = { authenticated: false, user: null, csrfToken: null, guestCsrfToken: null, lastMerge: null };
+const state = { authenticated: false, user: null, csrfToken: null, guestCsrfToken: null, lastMerge: null, mergeKey: null, sessionVersion: 0 };
 
 const $ = (selector) => document.querySelector(selector);
 const loginForm = $("#loginForm");
@@ -16,6 +16,7 @@ function bind() {
   registerForm.addEventListener("submit", (event) => submitRegister(event));
   $("#logoutButton").addEventListener("click", logout);
   $("#retryMergeButton").addEventListener("click", retryMerge);
+  $("#importGuestButton").addEventListener("click", retryMerge);
 }
 
 async function hydrate() {
@@ -72,7 +73,10 @@ async function submitForm(form, endpoint, success, guestMutation, payload = form
     applySession(data);
     form.reset();
     setStatus(success);
-    if (data.merge) renderMerge(data.merge);
+    if (data.merge) {
+      state.mergeKey = payload.guestMergeIdempotencyKey || null;
+      renderMerge(data.merge);
+    }
     await loadAccountData();
   } catch (error) {
     setStatus(formatError(error), true);
@@ -82,7 +86,11 @@ async function submitForm(form, endpoint, success, guestMutation, payload = form
 async function logout() {
   try {
     await apiFetch("/api/auth/logout", { method: "POST" });
+    state.sessionVersion += 1;
     state.authenticated = false; state.user = null; state.csrfToken = null;
+    state.guestCsrfToken = null; state.lastMerge = null; state.mergeKey = null;
+    $("#mergeSummary").classList.add("hidden");
+    $("#mergeSteps").replaceChildren();
     $("#sessionSummary").classList.add("hidden");
     clearList("#pantryList"); clearList("#historyList");
     $("#pantryStatus").textContent = "로그인하면 저장한 재료를 확인할 수 있습니다.";
@@ -92,20 +100,32 @@ async function logout() {
 }
 
 async function retryMerge() {
-  const button = $("#retryMergeButton");
-  button.disabled = true; setStatus("");
+  if (!state.authenticated || $("#importGuestButton").disabled) return;
+  const sessionVersion = state.sessionVersion;
+  const buttons = [$("#retryMergeButton"), $("#importGuestButton")];
+  buttons.forEach((button) => { button.disabled = true; });
+  setStatus("");
   try {
+    state.mergeKey ||= freshKey();
     const data = await apiFetch("/api/guest/merge", {
-      method: "POST", body: JSON.stringify({ idempotencyKey: freshKey() })
+      method: "POST", body: JSON.stringify({ idempotencyKey: state.mergeKey })
     });
-    renderMerge(data.merge || data); setStatus("게스트 데이터 병합을 다시 요청했습니다.");
-  } catch (error) { setStatus(formatError(error), true); }
-  finally { button.disabled = false; }
+    if (sessionVersion !== state.sessionVersion) return;
+    renderMerge(data.merge || data);
+    setStatus("게스트 데이터 가져오기 결과를 확인해 주세요.");
+    await loadAccountData();
+  } catch (error) {
+    if (sessionVersion === state.sessionVersion) setStatus(formatError(error), true);
+  } finally {
+    if (sessionVersion === state.sessionVersion) buttons.forEach((button) => { button.disabled = false; });
+  }
 }
 
 async function loadAccountData() {
   if (!state.authenticated) return;
+  const sessionVersion = state.sessionVersion;
   const results = await Promise.allSettled([apiFetch("/api/pantry"), apiFetch("/api/recommendations")]);
+  if (sessionVersion !== state.sessionVersion) return;
   renderPantry(results[0]); renderHistory(results[1]);
 }
 
@@ -154,9 +174,19 @@ function renderMerge(merge) {
   });
   const complete = ["completed", "succeeded"].includes(String(merge.status).toLowerCase());
   $("#retryMergeButton").classList.toggle("hidden", complete);
+  $("#importGuestButton").classList.add("hidden");
 }
 
 function applySession(data) {
+  state.sessionVersion += 1;
+  $("#importGuestButton").disabled = false;
+  $("#retryMergeButton").disabled = false;
+  if (state.user?.id !== data.user?.id) {
+    state.lastMerge = null; state.mergeKey = null;
+    $("#mergeSummary").classList.add("hidden");
+    $("#mergeSteps").replaceChildren();
+    $("#importGuestButton").classList.remove("hidden");
+  }
   state.authenticated = Boolean(data.authenticated); state.user = data.user || null; state.csrfToken = data.csrfToken || null;
   $("#sessionSummary").classList.toggle("hidden", !state.authenticated);
   if (state.authenticated) { loginForm.classList.add("hidden"); registerForm.classList.add("hidden"); }

@@ -166,3 +166,16 @@ test("selection lookup is owner scoped for post-merge replay", async () => {
   assert.match(requested, /user_id=eq\.u1/);
   assert.match(requested, /idempotency_key=eq\.key-1/);
 });
+
+test("duplicate insert retains only its safe SQLSTATE for conflict handling", async () => {
+  const privateDetail = "sensitive-email-and-SQL-must-not-leak";
+  await withMockFetch(async () => jsonResponse({ code: "23505", message: privateDetail, details: privateDetail }, 409), async () => {
+    await assert.rejects(database().insertUser({ id: "u1", email: "test@example.invalid" }), (error) => {
+      assert.equal(error.databaseCode, "23505");
+      assert.equal(error.upstreamStatus, 409);
+      assert.equal(error.message.includes(privateDetail), false);
+      assert.equal(JSON.stringify(error).includes(privateDetail), false);
+      return true;
+    });
+  });
+});

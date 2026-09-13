@@ -2,7 +2,7 @@
 
 ## Vercel
 
-현재 서비스는 <https://hackerton-project1.vercel.app/>이며 저장소는 <https://github.com/tnstory01-svg/naengteol-ai>의 `main`이다. `public/`의 프론트와 `api/index.js`의 Node 함수를 같은 배포에서 제공한다. `vercel.json`은 `/api/*`와 `/health`를 함수로 전달한다.
+현재 서비스는 <https://hackerton-project1.vercel.app/>이며 저장소는 <https://github.com/tnstory01-svg/naengteol-ai>의 `main`이다. 현재 운영 배포의 소스·검증 상태는 [구현 및 배포 기록](implementation-plan.md)을 확인한다. `public/`의 프론트와 `api/index.js`의 Node 함수를 같은 배포에서 제공한다. `vercel.json`은 `/api/*`와 `/health`를 함수로 전달한다.
 
 `public/runtime-config.js`의 `NAENGTEOL_API_BASE_URL`은 빈 값으로 유지한다. 브라우저가 현재 Vercel 주소의 `/api/*`를 호출하므로 별도 백엔드 주소나 교차 사이트 쿠키가 필요하지 않다.
 
@@ -28,7 +28,15 @@ Vercel 함수의 파일시스템은 영구 DB 저장소로 사용할 수 없다.
 
 신규 DB에는 `supabase/schema.sql`을 적용한다. 기존 DB는 `supabase/migrations/`의 적용 이력을 먼저 확인하고 미적용 변경만 순서대로 반영한다. 이미 적용된 스키마를 무작정 재실행하지 않는다.
 
-현재 후속 파일은 `supabase/migrations/202607110001_guest_selection_merge.sql`이다. 적용에 사용한 배포 기록 또는 SQL 실행 기록에서 이 파일의 실행 여부를 확인한다. 이력을 확인할 수 없다면 운영 스키마와 파일을 대조하기 전에는 적용하지 않는다. 이 저장소는 마이그레이션을 자동 실행하지 않는다.
+후속 변경은 [게스트 스키마](../supabase/migrations/202607110001_guest_selection_merge.sql)와 [보안·세션 정리 수정](../supabase/migrations/202609080001_security_cleanup.sql)이다. 먼저 [읽기 전용 SQL 점검](../supabase/security-audit.sql)과 `npx supabase migration list`로 적용 이력을 확인한다. SQL 점검 파일은 SQL 편집기에서 각 조회 결과를 확인한다. CLI Management API 경로는 마지막 조회 결과만 반환하므로 필요한 조회를 개별 실행한다. 운영 스키마가 준비된 경우 `npx supabase db push --dry-run`으로 미적용 변경을 확인한 뒤 적용한다. 최초 게스트 마이그레이션은 모호한 소유권 데이터를 격리하므로 이력 확인 없이 다시 실행하지 않는다. `db reset`이나 스키마 전체 재실행은 연결 복구 절차가 아니다. 이 저장소는 마이그레이션을 자동 실행하지 않는다.
+
+보안 수정은 앱 테이블의 RLS를 활성화하고 `PUBLIC`, `anon`, `authenticated`의 직접 테이블·RPC 접근을 차단하며 서버용 `service_role` 권한을 유지한다. 앱은 자체 세션을 검증하는 서버를 통해 DB를 이용한다. 병합 기록이 참조하는 게스트 세션은 감사 기록을 보존하기 위해 남긴다. 정리 함수는 병합 중 잠긴 세션을 건너뛴다. 별도의 기록 보존 기간이나 영구 삭제 정책은 추가하지 않는다.
+
+`npm run test:sql`은 PGlite PostgreSQL 18에서 기존 권한 누락과 외래키 정리 실패를 재현한 뒤, 수정 적용·재적용·역할별 접근·데이터 보존·병합 재시도를 검증한다. `pgcrypto` 설치문만 생략하고 엔진 내장 `gen_random_uuid()`를 사용한다. 운영 Supabase의 실제 버전, 확장, 동시 연결, 마이그레이션 적용 여부와 PostgREST 캐시는 별도로 검증해야 한다.
+
+Supabase CLI는 `npx supabase login`, `npx supabase link --project-ref uoqzntvgtqpseyffjonu`로 인증·연결한다. `supabase init`은 로컬 설정 생성이며 DB 초기화가 아니다.
+
+제공된 `startAuthorization('connect/hackerton-project1', { subject: { type: 'user', id: 'usr_123' } })` 호출은 Vercel Connect 인증 요청이다. [SDK 문서](https://github.com/vercel/vercel/tree/main/packages/connect)에 따라 프로젝트 OIDC 인증이 필요하며 Vercel 관리 계정 로그인 자체를 대신하지 않는다. 로컬에서는 Vercel 로그인·프로젝트 연결과 OIDC 준비가 선행돼야 한다. 이번 점검은 운영자 연결 용도로 실행했으며 사용자 화면이나 기존 로그인 흐름에 새 기능을 삽입하지 않았다. 앱 사용자 기능으로 도입한다면 예시 ID를 실제 서버 검증 사용자 ID로 대체해야 한다.
 
 `GET /health`가 200이고 다음을 반환해야 한다:
 

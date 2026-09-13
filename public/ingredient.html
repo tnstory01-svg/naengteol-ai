@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>재료 상세 | 자취생의 모든것</title>
+    <meta name="description" content="재료별 보관·안전 정보와 1인분 요리 안내" />
+    <link rel="stylesheet" href="styles.css?v=food-catalog-1" />
+  </head>
+  <body>
+    <header class="app-header compact-header">
+      <div>
+        <p class="eyebrow">Ingredient Guide</p>
+        <h1 id="ingredientPageTitle">재료 상세</h1>
+      </div>
+      <nav class="app-nav" aria-label="주요 탐색">
+        <a class="nav-link" href="./">냉장고 털기</a>
+        <a class="nav-link active" href="./ingredients.html">재료 도감</a>
+        <a class="nav-link" href="./me.html">내 정보</a>
+      </nav>
+    </header>
+    <main id="ingredientDetail" class="catalog-layout" tabindex="-1">
+      <section class="panel" aria-busy="true">
+        <p class="empty-state">재료 정보를 불러오는 중입니다.</p>
+      </section>
+    </main>
+    <script src="ingredient.js?v=food-catalog-1" type="module"></script>
+  </body>
+</html>

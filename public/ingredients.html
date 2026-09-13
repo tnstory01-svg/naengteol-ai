@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>재료 도감 | 자취생의 모든것</title>
+    <meta name="description" content="자취생 냉장고 털기 재료 48개의 보관법과 요리 아이디어를 찾아보세요." />
+    <link rel="stylesheet" href="styles.css?v=food-catalog-1" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Ingredient Guide</p>
+        <h1>재료 도감</h1>
+        <p class="subtitle">보관법과 1인분 요리 아이디어를 재료별로 확인합니다.</p>
+      </div>
+      <nav class="app-nav" aria-label="주요 탐색">
+        <a class="nav-link" href="./">냉장고 털기</a>
+        <a class="nav-link active" href="./ingredients.html" aria-current="page">재료 도감</a>
+        <a class="nav-link" href="./me.html">내 정보</a>
+      </nav>
+    </header>
+    <main class="catalog-layout">
+      <section class="panel catalog-search-panel" aria-labelledby="catalogTitle">
+        <div class="section-heading">
+          <p class="eyebrow">48 ingredients</p>
+          <h2 id="catalogTitle">재료 찾기</h2>
+        </div>
+        <label for="ingredientSearch">이름·분류·요리로 검색</label>
+        <input id="ingredientSearch" type="search" inputmode="search" autocomplete="off" placeholder="예: 계란, 냉동, 볶음밥" />
+        <p id="catalogCount" class="muted-copy" role="status"></p>
+      </section>
+      <section aria-label="재료 목록">
+        <div id="ingredientCatalog" class="ingredient-catalog-grid"></div>
+        <div id="catalogEmpty" class="panel empty-state hidden" role="status">검색 결과가 없습니다. 다른 재료명이나 요리명을 입력해 보세요.</div>
+      </section>
+    </main>
+    <script src="ingredients.js?v=food-catalog-1" type="module"></script>
+  </body>
+</html>

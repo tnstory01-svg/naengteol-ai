@@ -17,6 +17,7 @@ import {
 } from "./lib/auth.js";
 import { LocalDatabase } from "./lib/local-db.js";
 import { SupabaseDatabase } from "./lib/supabase-db.js";
+import { flattenCatalog, ingredientNamesMatch } from "./public/food-catalog.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -885,7 +886,7 @@ async function handleRecommend(request, response) {
   const payload = asObject(await readJson(request));
   const ingredients = normalizeIngredients(payload.ingredients, payload.ingredientsText);
   const preferences = normalizePreferences(payload.preferences);
-  const pantryItems = owner.auth ? await db.listPantryItems(owner) : [];
+  const pantryItems = await db.listPantryItems(owner);
   const ingredientCheck = buildIngredientCheck({ inputIngredients: ingredients, pantryItems });
   const recommendationIngredients = ingredientCheck.recommendationIngredients;
   if (recommendationIngredients.length === 0) throw new HttpError(400, "재료를 한 가지 이상 입력해 주세요.");
@@ -895,14 +896,18 @@ async function handleRecommend(request, response) {
   let warning = null;
   try {
     recommendation = await createAiRecommendation({ ingredients: recommendationIngredients, preferences, anonymousId: owner.userId ? `user-${owner.userId}` : `guest-${owner.guestSessionId}`, ingredientCheck });
-    if (recommendation) source = "groq";
+    if (recommendation && isCompleteRecommendation(recommendation)) source = "groq";
+    else if (recommendation) {
+      warning = "AI 추천 형식이 완전하지 않아 검토된 기본 레시피를 사용했습니다.";
+      recommendation = null;
+    }
   } catch (error) {
     warning = error.message;
     console.warn("Groq recommendation failed. Using fallback.", error.message);
   }
-  if (!recommendation) recommendation = createFallbackRecommendation(recommendationIngredients, preferences);
+  if (!recommendation) recommendation = createFallbackRecommendation(recommendationIngredients, preferences, ingredientCheck);
   const recommendationId = randomUUID();
-  const normalizedBase = normalizeRecommendation(recommendation, recommendationIngredients);
+  const normalizedBase = normalizeRecommendation(recommendation, recommendationIngredients, ingredientCheck, preferences, source);
   const normalized = { ...normalizedBase, recipes: normalizedBase.recipes.map((recipe) => ({ ...recipe, id: randomUUID() })), ingredientCheck };
   const exposure = await db.recordRecommendationExposure({ userId: owner.userId, guestSessionId: owner.guestSessionId, recommendationId, inputIngredients: recommendationIngredients, preferences, snapshot: normalized, recommendation: normalized, source, createdAt: new Date().toISOString() });
   sendJson(response, 200, { recommendationId, ...normalized, meta: { source, warning, ingredientCheck, logging: { stored: Boolean(exposure) } } });
@@ -910,22 +915,18 @@ async function handleRecommend(request, response) {
 
 function buildIngredientCheck({ inputIngredients, pantryItems }) {
   const submittedIngredients = uniqueValues(inputIngredients || []).slice(0, 15);
-  const databaseIngredients = (Array.isArray(pantryItems) ? pantryItems : []).map((item) => ({ name: normalizeShortText(item.name, 80), quantity: normalizeShortText(item.quantity, 40), expiresAt: item.expiresAt || "" })).filter((item) => item.name).slice(0, 50);
-  const pantryByKey = new Map();
-  for (const item of databaseIngredients) { const key = ingredientKey(item.name); if (key && !pantryByKey.has(key)) pantryByKey.set(key, item); }
-  const submittedKeys = new Set();
+  const databaseIngredients = (Array.isArray(pantryItems) ? pantryItems : []).map((item) => ({ name: normalizeShortText(item.name, 80), quantity: normalizeShortText(item.quantity, 40), expiresAt: item.expiresAt || "" })).filter((item) => item.name);
   const verifiedMatches = [];
   const unverifiedInputIngredients = [];
   for (const ingredient of submittedIngredients) {
-    const key = ingredientKey(ingredient); if (key) submittedKeys.add(key);
-    const match = pantryByKey.get(key);
+    const match = databaseIngredients.find((item) => ingredientNamesMatch(item.name, ingredient));
     if (match) verifiedMatches.push({ input: ingredient, name: match.name, quantity: match.quantity, expiresAt: match.expiresAt });
     else unverifiedInputIngredients.push(ingredient);
   }
-  const databaseOnlyIngredients = databaseIngredients.filter((item) => !submittedKeys.has(ingredientKey(item.name)));
+  const databaseOnlyIngredients = databaseIngredients.filter((item) => !submittedIngredients.some((ingredient) => ingredientNamesMatch(item.name, ingredient)));
   const verifiedIngredients = uniqueValues(verifiedMatches.map((item) => item.name));
   const recommendationIngredients = uniqueValues([...verifiedIngredients, ...unverifiedInputIngredients, ...databaseOnlyIngredients.map((item) => item.name)]).slice(0, 20);
-  return { databaseChecked: databaseIngredients.length > 0, submittedIngredients, databaseIngredients: databaseIngredients.slice(0, 20), verifiedIngredients, verifiedMatches, unverifiedInputIngredients, databaseOnlyIngredients: databaseOnlyIngredients.slice(0, 20), recommendationIngredients, summary: databaseIngredients.length ? `DB 확인 ${verifiedIngredients.length}개, 입력만 ${unverifiedInputIngredients.length}개, DB 추가 ${databaseOnlyIngredients.length}개` : `입력 재료 ${submittedIngredients.length}개 기준` };
+  return { databaseChecked: databaseIngredients.length > 0, submittedIngredients, databaseIngredients, verifiedIngredients, verifiedMatches, unverifiedInputIngredients, databaseOnlyIngredients, recommendationIngredients, summary: databaseIngredients.length ? `DB 확인 ${verifiedIngredients.length}개, 입력만 ${unverifiedInputIngredients.length}개, DB 추가 ${databaseOnlyIngredients.length}개` : `입력 재료 ${submittedIngredients.length}개 기준` };
 }
 
 async function createAiRecommendation({ ingredients, preferences, anonymousId, ingredientCheck }) {
@@ -956,10 +957,10 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId, i
         content: JSON.stringify({
           ingredients,
           submittedIngredients: ingredientCheck.submittedIngredients,
-          databaseIngredients: ingredientCheck.databaseIngredients,
+          databaseIngredients: ingredientCheck.databaseIngredients?.slice(0, 20),
           verifiedIngredients: ingredientCheck.verifiedIngredients,
           unverifiedInputIngredients: ingredientCheck.unverifiedInputIngredients,
-          databaseOnlyIngredients: ingredientCheck.databaseOnlyIngredients,
+          databaseOnlyIngredients: ingredientCheck.databaseOnlyIngredients?.slice(0, 20),
           preferences,
           requiredLanguage: "ko-KR",
           outputShape: {
@@ -968,10 +969,15 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId, i
                 name: "string",
                 reason: "string",
                 ownedIngredients: ["string"],
+                inputIngredients: ["string"],
                 missingIngredients: ["string"],
+                requiredIngredients: [{ name: "string", amount: "string" }],
+                optionalIngredients: [{ name: "string", amount: "string" }],
+                equipment: ["string"],
                 cookTimeMinutes: "number",
                 difficulty: "easy | medium | hard",
                 steps: ["string"],
+                doneness: "string",
                 estimatedDeliveryCost: "number",
                 estimatedHomeCookingCost: "number",
                 estimatedSavings: "number"
@@ -986,6 +992,10 @@ async function createAiRecommendation({ ingredients, preferences, anonymousId, i
             "Use camelCase property names exactly as shown.",
             "Prioritize verifiedIngredients and databaseIngredients when possible.",
             "Treat unverifiedInputIngredients as usable but less reliable than database-verified ingredients.",
+            "List every ingredient needed for the dish in requiredIngredients with a practical one-serving amount.",
+            "ownedIngredients may contain only ingredients present in databaseIngredients. Put submitted-only matches in inputIngredients.",
+            "Do not reduce cookTimeMinutes to fit the preference; recommend another dish or report the honest time.",
+            "Give ordered heat/time/doneness steps and name the required equipment.",
             "Reflect the delivery-vs-home-cooking cost difference in every recipe."
           ],
           savingsRule: {
@@ -1256,60 +1266,46 @@ async function resolveIpBlock(request) {
   });
 }
 
-function createFallbackRecommendation(ingredients, preferences) {
-  const ingredientSet = new Set(ingredients.map((item) => item.toLowerCase()));
-  const has = (...names) => names.some((name) => ingredientSet.has(name.toLowerCase()));
-  const owned = (...names) => names.filter((name) => has(name));
-  const savings = DEFAULT_DELIVERY_COST - DEFAULT_HOME_COOKING_COST;
+function createFallbackRecommendation(ingredients, preferences, ingredientCheck = {}) {
+  const pantryNames = (ingredientCheck.databaseIngredients || []).map((item) => item.name);
+  const submittedNames = ingredientCheck.submittedIngredients || ingredients;
+  const availableNames = [...pantryNames, ...submittedNames];
   const maxCookTime = preferences.maxCookTimeMinutes || 20;
-
-  const recipes = [
-    {
-      name: has("김치", "밥") ? "김치볶음밥" : "냉장고 재료 볶음밥",
-      reason: "밥과 남은 재료를 한 번에 처리할 수 있어 식비 절약 효과가 큽니다.",
-      ownedIngredients: owned("김치", "밥", "계란", "달걀", "두부", "대파", "파"),
-      missingIngredients: has("참기름") ? [] : ["참기름"],
-      cookTimeMinutes: Math.min(15, maxCookTime),
-      difficulty: "easy",
-      steps: [
-        "팬에 기름을 두르고 파나 단단한 재료를 먼저 볶습니다.",
-        "김치나 채소를 넣고 수분을 날리며 볶습니다.",
-        "밥을 넣고 고르게 섞은 뒤 간을 맞춥니다.",
-        "계란이나 참기름을 더해 마무리합니다."
-      ],
-      estimatedSavings: savings
-    },
-    {
-      name: has("두부", "김치") ? "두부김치" : "단백질 냉장고 한 접시",
-      reason: "두부, 계란, 채소처럼 빨리 쓰기 좋은 재료를 중심으로 구성했습니다.",
-      ownedIngredients: owned("두부", "김치", "계란", "달걀", "파", "대파", "양파"),
-      missingIngredients: has("간장") ? [] : ["간장"],
-      cookTimeMinutes: Math.min(12, maxCookTime),
-      difficulty: "easy",
-      steps: [
-        "두부나 단백질 재료를 먹기 좋은 크기로 준비합니다.",
-        "김치나 채소를 팬에 볶아 감칠맛을 냅니다.",
-        "간장이나 소금으로 간을 조절합니다.",
-        "밥과 곁들일 수 있게 따뜻하게 담습니다."
-      ],
-      estimatedSavings: 7800
-    },
-    {
-      name: has("계란", "달걀") ? "계란국" : "빠른 냉장고 국",
-      reason: "조리 시간이 짧고 부족한 재료가 적어 저녁 메뉴로 안정적입니다.",
-      ownedIngredients: owned("계란", "달걀", "두부", "대파", "파", "양파", "김치"),
-      missingIngredients: has("국간장") ? [] : ["국간장"],
-      cookTimeMinutes: Math.min(10, maxCookTime),
-      difficulty: "easy",
-      steps: [
-        "물이나 육수를 끓입니다.",
-        "두부, 파, 양파처럼 있는 재료를 먼저 넣습니다.",
-        "계란을 천천히 풀어 넣습니다.",
-        "국간장이나 소금으로 간을 맞춥니다."
-      ],
-      estimatedSavings: 6500
-    }
+  const candidates = flattenCatalog().flatMap((item) => item.recipes).map((recipe) => {
+    const required = normalizeIngredientEntries(recipe.requiredIngredients);
+    const matched = required.filter((entry) => availableNames.some((name) => ingredientNamesMatch(name, entry.name))).length;
+    const missing = required.length - matched;
+    const withinPreference = recipe.cookTimeMinutes <= maxCookTime;
+    return { recipe, score: matched * 8 - missing * 4, withinPreference };
+  });
+  const rank = (left, right) => right.score - left.score || left.recipe.cookTimeMinutes - right.recipe.cookTimeMinutes;
+  const rankedCandidates = [
+    ...candidates.filter((candidate) => candidate.withinPreference).sort(rank),
+    ...candidates.filter((candidate) => !candidate.withinPreference).sort(rank)
   ];
+
+  const recipes = [];
+  for (const candidate of rankedCandidates) {
+    if (recipes.some((recipe) => recipe.name === candidate.recipe.name)) continue;
+    const recipe = candidate.recipe;
+    const required = normalizeIngredientEntries(recipe.requiredIngredients);
+    const ownedIngredients = required.filter((entry) => pantryNames.some((name) => ingredientNamesMatch(name, entry.name))).map((entry) => entry.name);
+    const inputIngredients = required.filter((entry) => submittedNames.some((name) => ingredientNamesMatch(name, entry.name)) && !pantryNames.some((name) => ingredientNamesMatch(name, entry.name))).map((entry) => entry.name);
+    const missingIngredients = required.filter((entry) => !availableNames.some((name) => ingredientNamesMatch(name, entry.name))).map((entry) => entry.name);
+    recipes.push({
+      ...recipe,
+      reason: `${recipe.reason} 필수 재료 ${required.length}개 중 현재 입력과 DB에서 ${required.length - missingIngredients.length}개를 확인했습니다.`,
+      ownedIngredients,
+      inputIngredients,
+      missingIngredients,
+      estimatedDeliveryCost: DEFAULT_DELIVERY_COST,
+      estimatedHomeCookingCost: DEFAULT_HOME_COOKING_COST,
+      estimatedSavings: DEFAULT_DELIVERY_COST - DEFAULT_HOME_COOKING_COST,
+      savingsDifference: DEFAULT_DELIVERY_COST - DEFAULT_HOME_COOKING_COST,
+      costEstimateNote: "가격은 1인분 예시이며 실제 구매가·사용량·배달비에 따라 달라집니다."
+    });
+    if (recipes.length === 3) break;
+  }
 
   const priorityIngredients = ingredients
     .filter((item) => ["두부", "콩나물", "버섯", "상추", "시금치", "대파", "파"].includes(item))
@@ -1318,39 +1314,63 @@ function createFallbackRecommendation(ingredients, preferences) {
   return {
     recipes,
     priorityIngredients: priorityIngredients.length ? priorityIngredients : ingredients.slice(0, 2),
-    summary: `배달 대신 집밥으로 해결하면 오늘 약 ${formatKrw(savings)}을 아낄 수 있습니다.`
+    summary: recipes.some((recipe) => recipe.cookTimeMinutes > maxCookTime)
+      ? `요청 시간 ${maxCookTime}분 안의 후보가 부족해 실제 조리 시간이 더 긴 메뉴도 표시했습니다.`
+      : `요청 시간 ${maxCookTime}분 안에서 입력 재료와 겹치는 순서로 메뉴를 골랐습니다.`
   };
 }
 
-function normalizeRecommendation(recommendation, ingredients) {
+function normalizeRecommendation(recommendation, ingredients, ingredientCheck = {}, preferences = {}, sourceKind = "fallback") {
   const source = recommendation && typeof recommendation === "object" ? recommendation : {};
-  const fallback = createFallbackRecommendation(ingredients, {});
+  const fallback = createFallbackRecommendation(ingredients, preferences, ingredientCheck);
   const recipes = Array.isArray(source.recipes) ? source.recipes : [];
   const normalizedRecipes = recipes.slice(0, 3).map((recipe, index) => {
     const fallbackRecipe = fallback.recipes[index] || fallback.recipes[0];
-    const estimatedDeliveryCost = clampInt(recipe.estimatedDeliveryCost, 8000, 30_000, DEFAULT_DELIVERY_COST);
+    const usesFallback = !isCompleteStructuredRecipe(recipe);
+    const baseRecipe = usesFallback ? fallbackRecipe : recipe;
+    const hasTrustedCatalogProvenance = sourceKind === "fallback" || usesFallback;
+    const estimatedDeliveryCost = clampInt(baseRecipe.estimatedDeliveryCost, 8000, 30_000, DEFAULT_DELIVERY_COST);
     const rawSavings = clampInt(
-      recipe.estimatedSavings,
+      baseRecipe.estimatedSavings,
       0,
       estimatedDeliveryCost,
       fallbackRecipe.estimatedSavings
     );
     const estimatedHomeCookingCost = clampInt(
-      recipe.estimatedHomeCookingCost,
+      baseRecipe.estimatedHomeCookingCost,
       0,
       estimatedDeliveryCost,
       Math.max(0, estimatedDeliveryCost - rawSavings)
     );
     const savingsDifference = Math.max(0, estimatedDeliveryCost - estimatedHomeCookingCost);
 
+    const requiredIngredients = normalizeIngredientEntries(baseRecipe.requiredIngredients).slice(0, 16);
+    const optionalIngredients = normalizeIngredientEntries(baseRecipe.optionalIngredients).slice(0, 8);
+    const pantryNames = (ingredientCheck.databaseIngredients || []).map((item) => item.name);
+    const submittedNames = ingredientCheck.submittedIngredients || ingredients;
+    const availableNames = [...pantryNames, ...submittedNames];
+    const ownedIngredients = requiredIngredients.filter((entry) => pantryNames.some((name) => ingredientNamesMatch(name, entry.name))).map((entry) => entry.name);
+    const inputIngredients = requiredIngredients.filter((entry) => submittedNames.some((name) => ingredientNamesMatch(name, entry.name)) && !pantryNames.some((name) => ingredientNamesMatch(name, entry.name))).map((entry) => entry.name);
+    const missingIngredients = requiredIngredients.filter((entry) => !availableNames.some((name) => ingredientNamesMatch(name, entry.name))).map((entry) => entry.name);
     return {
-      name: asString(recipe.name, fallbackRecipe.name),
-      reason: asString(recipe.reason, fallbackRecipe.reason),
-      ownedIngredients: asStringArray(recipe.ownedIngredients, fallbackRecipe.ownedIngredients).slice(0, 12),
-      missingIngredients: asStringArray(recipe.missingIngredients, fallbackRecipe.missingIngredients).slice(0, 8),
-      cookTimeMinutes: clampInt(recipe.cookTimeMinutes, 5, 60, fallbackRecipe.cookTimeMinutes),
-      difficulty: ["easy", "medium", "hard"].includes(recipe.difficulty) ? recipe.difficulty : "easy",
-      steps: asStringArray(recipe.steps, fallbackRecipe.steps).slice(0, 6),
+      name: asString(baseRecipe.name, fallbackRecipe.name),
+      reason: asString(baseRecipe.reason, fallbackRecipe.reason),
+      ownedIngredients,
+      inputIngredients,
+      missingIngredients,
+      requiredIngredients,
+      optionalIngredients,
+      equipment: asStringArray(baseRecipe.equipment, []).slice(0, 8),
+      cookTimeMinutes: clampInt(baseRecipe.cookTimeMinutes, 5, 60, fallbackRecipe.cookTimeMinutes),
+      difficulty: ["easy", "medium", "hard"].includes(baseRecipe.difficulty) ? baseRecipe.difficulty : "easy",
+      steps: asStringArray(baseRecipe.steps, []).slice(0, 12),
+      doneness: asString(baseRecipe.doneness, "완성 상태를 단계 설명과 제품 표시에서 확인하세요."),
+      sourceRefs: hasTrustedCatalogProvenance ? asStringArray(baseRecipe.sourceRefs, []).slice(0, 8) : [],
+      reviewedAt: hasTrustedCatalogProvenance ? asString(baseRecipe.reviewedAt, "") : "",
+      adaptationNote: hasTrustedCatalogProvenance ? asString(baseRecipe.adaptationNote, "") : "AI가 입력 재료를 바탕으로 생성한 조리안입니다.",
+      sourceScope: hasTrustedCatalogProvenance ? asString(baseRecipe.sourceScope, "") : "별도 요리 출처로 검증되지 않은 생성 결과입니다. 제품 표시와 안전한 익힘 상태를 우선하세요.",
+      estimateNote: hasTrustedCatalogProvenance ? asString(baseRecipe.estimateNote, "") : "분량과 시간은 생성된 1인분 예상값이며 실제 조리로 검증한 표준값이 아닙니다.",
+      costEstimateNote: asString(baseRecipe.costEstimateNote, "가격은 1인분 예시이며 실제 구매가·사용량·배달비에 따라 달라집니다."),
       estimatedDeliveryCost,
       estimatedHomeCookingCost,
       estimatedSavings: savingsDifference,
@@ -1378,6 +1398,34 @@ function normalizeRecommendation(recommendation, ingredients) {
       estimatedHomeCookingCost: DEFAULT_HOME_COOKING_COST
     }
   };
+}
+
+function isCompleteStructuredRecipe(recipe) {
+  if (!recipe || typeof recipe !== "object") return false;
+  const normalizedRequired = normalizeIngredientEntries(recipe.requiredIngredients);
+  return Boolean(
+    normalizeShortText(recipe.name, 120) &&
+    Array.isArray(recipe.requiredIngredients) && recipe.requiredIngredients.length > 0 &&
+    normalizedRequired.length === recipe.requiredIngredients.length &&
+    normalizedRequired.every((entry) => entry.name && entry.amount) &&
+    Array.isArray(recipe.equipment) && recipe.equipment.length > 0 &&
+    Array.isArray(recipe.steps) && recipe.steps.length >= 3 &&
+    normalizeShortText(recipe.doneness, 300) &&
+    Number.isFinite(Number(recipe.cookTimeMinutes))
+  );
+}
+
+function isCompleteRecommendation(recommendation) {
+  return recommendation && Array.isArray(recommendation.recipes) && recommendation.recipes.length === 3 && recommendation.recipes.every(isCompleteStructuredRecipe);
+}
+
+function normalizeIngredientEntries(value, fallback = []) {
+  const source = Array.isArray(value) && value.length ? value : fallback;
+  return (Array.isArray(source) ? source : []).map((entry) => {
+    if (typeof entry === "string") return { name: normalizeShortText(entry, 80), amount: "" };
+    const item = asObject(entry);
+    return { name: normalizeShortText(item.name, 80), amount: normalizeShortText(item.amount, 80) };
+  }).filter((entry) => entry.name);
 }
 
 function serveStatic(pathname, response, method = "GET") {
@@ -2068,7 +2116,7 @@ function parseUserStatus(value) {
 }
 
 function isUniqueConstraintError(error) {
-  return /23505|duplicate|unique/i.test(String(error?.message || ""));
+  return error?.databaseCode === "23505" || /23505|duplicate|unique/i.test(String(error?.message || ""));
 }
 
 function countAdminUsers(data) {

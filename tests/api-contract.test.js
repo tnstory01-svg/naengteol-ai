@@ -1,10 +1,11 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { flattenCatalog } from "../public/food-catalog.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = 3217;
@@ -192,6 +193,69 @@ describe("guest recommendation, selection, and merge contracts", () => {
     }
   });
 
+  test("fallback distinguishes stored aliases, submitted ingredients, and missing requirements", async () => {
+    const guest = await bootstrapGuest();
+    const saved = await request("/api/pantry", {
+      method: "POST", headers: { cookie: guest.cookie, "x-csrf-token": guest.csrfToken },
+      body: JSON.stringify({ stableId: "content-egg", name: "달걀", quantity: "2개" })
+    });
+    assert.equal(saved.response.status, 201);
+    const result = await recommend(guest, { ingredients: ["계란", "김치", "밥"], preferences: { maxCookTimeMinutes: 5 } });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.meta.source, "fallback");
+    assert.equal(result.body.meta.logging.stored, true);
+    const persisted = JSON.parse(await readFile(path.join(databaseDirectory, "app.db.json"), "utf8"));
+    const exposure = persisted.recommendationLogs.find((row) => row.recommendationId === result.body.recommendationId);
+    assert.ok(exposure, "recommendation exposure must exist in the temporary DB file");
+    assert.deepEqual(exposure.snapshot.recipes, result.body.recipes);
+    assert.deepEqual(result.body.ingredientCheck.verifiedIngredients, ["달걀"]);
+    assert.deepEqual(result.body.ingredientCheck.unverifiedInputIngredients, ["김치", "밥"]);
+    const equivalent = (name) => ({ "달걀": "계란", "배추김치": "김치", "즉석밥": "밥" }[name] || name);
+    let ownedCount = 0;
+    let inputCount = 0;
+    let missingCount = 0;
+    for (const recipe of result.body.recipes) {
+      assert.ok(recipe.requiredIngredients.length > 0);
+      const required = recipe.requiredIngredients.map((entry) => entry.name);
+      assert.deepEqual(recipe.ownedIngredients, required.filter((name) => equivalent(name) === "계란"));
+      assert.deepEqual(recipe.inputIngredients, required.filter((name) => ["김치", "밥"].includes(equivalent(name))));
+      assert.deepEqual(recipe.missingIngredients, required.filter((name) => !["계란", "김치", "밥"].includes(equivalent(name))));
+      ownedCount += recipe.ownedIngredients.length;
+      inputCount += recipe.inputIngredients.length;
+      missingCount += recipe.missingIngredients.length;
+      assert.ok(recipe.sourceRefs.length > 0);
+      assert.ok(recipe.steps.length >= 3);
+      assert.ok(recipe.doneness);
+      assert.match(recipe.adaptationNote, /1인분/);
+      const specification = flattenCatalog().flatMap((item) => item.recipes).find((candidate) => candidate.name === recipe.name && JSON.stringify(candidate.steps) === JSON.stringify(recipe.steps));
+      assert.ok(specification, "response must retain an explicit catalog method");
+      assert.equal(recipe.cookTimeMinutes, specification.cookTimeMinutes, "requested time must not rewrite the recipe duration");
+    }
+    assert.ok(ownedCount > 0, "must exercise a stored ingredient");
+    assert.ok(inputCount > 0, "must exercise a submitted-only ingredient");
+    assert.ok(missingCount > 0, "must exercise a genuinely missing ingredient");
+  });
+
+  test("pantry entries beyond the prompt limit remain owned and never missing", async () => {
+    const guest = await bootstrapGuest();
+    const headers = { cookie: guest.cookie, "x-csrf-token": guest.csrfToken };
+    for (let index = 0; index < 22; index += 1) {
+      const result = await request("/api/pantry", { method: "POST", headers,
+        body: JSON.stringify({ stableId: `large-pantry-${index}`, name: index === 0 ? "요거트" : `검사용재료${index}`, quantity: "1개" }) });
+      assert.equal(result.response.status, 201);
+    }
+    const pantry = (await request("/api/pantry", { headers })).body.items;
+    assert.ok(pantry.findIndex((item) => item.name === "요거트") >= 20, "fixture must exercise the truncated part of the pantry");
+    const result = await recommend(guest, { ingredients: ["바나나"], preferences: { maxCookTimeMinutes: 5 } });
+    assert.equal(result.response.status, 200);
+    const recipe = result.body.recipes.find((item) => item.name === "바나나요거트");
+    assert.ok(recipe);
+    assert.deepEqual(recipe.ownedIngredients, ["요거트"]);
+    assert.deepEqual(recipe.inputIngredients, ["바나나"]);
+    assert.deepEqual(recipe.missingIngredients, []);
+    assert.equal(result.body.ingredientCheck.databaseIngredients.length, 22);
+  });
+
   test("selection snapshots server value, is idempotent, and rejects a second key", async () => {
     const guest = await bootstrapGuest();
     const recommendation = await recommend(guest);
@@ -200,9 +264,13 @@ describe("guest recommendation, selection, and merge contracts", () => {
     const first = await request("/api/menu-selections", { method: "POST", headers: { cookie: guest.cookie, "x-csrf-token": guest.csrfToken }, body: JSON.stringify(payload) });
     assert.equal(first.response.status, 201);
     assert.equal(first.body.recipeSnapshot.estimatedSavings, recipe.estimatedSavings);
+    for (const field of ["requiredIngredients", "optionalIngredients", "ownedIngredients", "inputIngredients", "missingIngredients", "steps", "doneness", "sourceRefs", "cookTimeMinutes"]) {
+      assert.deepEqual(first.body.recipeSnapshot[field], recipe[field], `saved snapshot lost ${field}`);
+    }
     const repeated = await request("/api/menu-selections", { method: "POST", headers: { cookie: guest.cookie, "x-csrf-token": guest.csrfToken }, body: JSON.stringify(payload) });
     assert.equal(repeated.response.status, 200);
     assert.equal(repeated.body.selectionId, first.body.selectionId);
+    assert.deepEqual(repeated.body.recipeSnapshot, first.body.recipeSnapshot, "replay must read the same stored recipe");
     const conflict = await request("/api/menu-selections", { method: "POST", headers: { cookie: guest.cookie, "x-csrf-token": guest.csrfToken }, body: JSON.stringify({ ...payload, idempotencyKey: "select-2" }) });
     assert.equal(conflict.response.status, 409);
   });

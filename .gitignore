@@ -31,3 +31,4 @@ Thumbs.db
 .idea/
 # GJC runtime/workflow state
 .gjc/
+.vercel
