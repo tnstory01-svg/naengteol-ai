@@ -78,6 +78,47 @@ for (const env of [{}, { NODE_ENV: "development", VERCEL: "1" }, { VERCEL: "", S
   });
 }
 
+test("support chat answers FAQs offline and uses recent conversation for Groq", async () => {
+  const calls = [];
+  const groq = http.createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    calls.push({ url: request.url, body: JSON.parse(Buffer.concat(chunks).toString()) });
+    response.writeHead(calls.length === 1 ? 200 : 503);
+    response.end(JSON.stringify({ choices: [{ message: { content: "<think>internal</think>answer" } }] }));
+  });
+  groq.listen(0, "127.0.0.1");
+  await once(groq, "listening");
+  try {
+    const env = {
+      NODE_ENV: "test", VERCEL: "", GROQ_API_KEY: "test", GROQ_MODEL: "test-model",
+      GROQ_API_BASE_URL: `http://127.0.0.1:${groq.address().port}`
+    };
+    await withDeployment(env, async ({ origin }) => {
+      async function chat(payload) {
+        const response = await fetch(`${origin}/api/support/chat`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload)
+        });
+        assert.equal(response.status, 200);
+        return response.json();
+      }
+      const faq = await chat({ message: "장바구니 사용법" });
+      assert.equal(faq.intent, "shopping");
+      assert.equal(calls.length, 0);
+      const history = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: String(i) }));
+      const message = "남은 재료는 어떻게 써?";
+      const ai = await chat({ message, history: [...history, { role: "system", content: "discard" }] });
+      assert.equal(ai.intent, "ai");
+      assert.equal(ai.answer, "answer");
+      assert.equal(calls[0].url, "/chat/completions");
+      assert.deepEqual(calls[0].body.messages.slice(1), [...history.slice(-6), { role: "user", content: message }]);
+      assert.equal((await chat({ message })).intent, "fallback");
+    });
+  } finally {
+    await new Promise(resolve => groq.close(resolve));
+  }
+});
+
 test("Supabase outage yields safe diagnostics and recovers without local fallback", async () => {
   let healthy = false;
   let reads = 0;

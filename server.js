@@ -1,5 +1,4 @@
 import http from "node:http";
-import https from "node:https";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -532,7 +531,7 @@ async function handleSupportChat(request, response) {
     throw new HttpError(400, "문의 내용을 입력해주세요.");
   }
 
-  const result = await createSupportReply(message);
+  const result = await createSupportReply(message, payload.history);
   sendJson(response, 200, result);
 }
 
@@ -1765,229 +1764,55 @@ function publicUser(user) {
   };
 }
 
-async function createSupportReply(message) {
-  const text = message.toLowerCase();
-  const intents = [
-    {
-      id: "login",
-      keywords: ["로그인", "회원", "가입", "비밀번호", "계정"],
-      answer:
-        "로그인은 login.html, 회원가입은 register.html에서 각각 할 수 있습니다. 비밀번호는 10자 이상이고 영문과 숫자를 모두 포함해야 합니다.",
-      suggestions: ["로그인 페이지", "회원가입 방법", "로그아웃"]
-    },
-    {
-      id: "fridge-clear",
-      keywords: ["추천", "메뉴", "요리", "재료", "냉장고", "레시피", "털기"],
-      answer:
-        "냉장고 재료 털기 화면에서 보유 재료를 쉼표나 줄바꿈으로 입력하면 만들 수 있는 메뉴 3가지를 보여줍니다. 로그인하면 털기 기록과 예상 절약 금액이 저장됩니다.",
-      suggestions: ["재료 입력", "털기 기록", "식비 절약"]
-    },
-    {
-      id: "pantry",
-      keywords: ["저장", "재료 db", "재료db", "유통기한", "소비기한", "삭제"],
-      answer:
-        "로그인 후 재료 DB에 재료명, 수량, 소비기한을 저장할 수 있습니다. 저장된 재료는 냉장고 재료 털기 입력란으로 바로 옮길 수 있습니다.",
-      suggestions: ["재료 저장", "소비기한", "재료 삭제"]
-    },
-    {
-      id: "admin",
-      keywords: ["관리자", "admin", "권한", "차단", "ip", "정지"],
-      answer:
-        "관리자 계정은 사용자 목록, 계정 상태, 권한, 의심 IP 차단을 관리합니다. 일반 계정에서는 관리자 API와 화면이 열리지 않습니다.",
-      suggestions: ["사용자 정지", "IP 차단", "권한 변경"]
-    },
-    {
-      id: "notes",
-      keywords: ["메모", "노트", "할일", "기록", "체크"],
-      answer:
-        "메모장 화면에서 자취 생활 메모, 장보기 계획, 할 일을 저장할 수 있습니다. 현재 메모는 이 브라우저의 localStorage에 저장됩니다.",
-      suggestions: ["메모 저장", "장보기 메모", "할 일 관리"]
-    },
-    {
-      id: "shopping",
-      keywords: [
-        "장바구니",
-        "쇼핑",
-        "필수품",
-        "자취",
-        "구매",
-        "쿠팡",
-        "네이버",
-        "11번가",
-        "g마켓",
-        "shopping",
-        "cart",
-        "basket",
-        "living",
-        "apartment",
-        "checklist",
-        "essential",
-        "essentials"
-      ],
-      answer:
-        "자취 장바구니 화면에서 주방, 청소, 욕실, 생활 필수품을 체크하고 쇼핑몰 검색 링크로 바로 이동할 수 있습니다.",
-      suggestions: ["자취 필수품", "주방 기본템", "청소 용품"]
-    },
-    {
-      id: "places",
-      keywords: ["놀곳", "놀 곳", "가볼", "랜드마크", "유적지", "여행", "관광", "데이트", "야경"],
-      answer:
-        "놀곳추천 화면에서 특별시·광역시·특별자치시와 도·특별자치도를 고른 뒤, 생활권·시군구별 랜드마크와 역사 유적지를 볼 수 있습니다.",
-      suggestions: ["서울 놀곳", "경주 유적지", "제주 자연 명소"]
-    },
-    {
-      id: "tips",
-      keywords: ["꿀팁", "서류", "전입신고", "확정일자", "계약", "관리비", "이사"],
-      answer:
-        "꿀팁방출기 화면에서 전입신고, 확정일자, 계약 전 점검, 관리비, 이사 당일 체크 같은 자취 정보를 검색하고 분야별로 볼 수 있습니다.",
-      suggestions: ["전입신고", "계약 전 확인", "관리비 정리"]
-    },
-    {
-      id: "privacy",
-      keywords: ["개인정보", "보안", "세션", "데이터", "삭제"],
-      answer:
-        "계정, 세션, 냉장고 털기 기록은 서버 쪽 로컬 DB에 저장됩니다. IP 차단은 원문 IP가 아니라 해시 지문으로 관리합니다.",
-      suggestions: ["데이터 저장 위치", "IP 차단 방식", "로그아웃"]
-    }
+async function createSupportReply(message, history = []) {
+  const suggestions = ["장바구니 사용법", "메모 사용법", "냉장고 털기 사용법"];
+  const reply = (intent, answer) => ({ intent, answer, suggestions, links: [] });
+  const faq = [
+    ["shopping", /장바구니/, "생활도구의 장바구니에서 살 물건을 추가할 수 있어요."],
+    ["notes", /메모/, "생활도구의 생활 메모에서 제목과 내용을 저장하세요."],
+    ["fridge-clear", /냉장고\s*털기|냉털/, "냉장고 털기에 가진 재료를 입력하면 메뉴를 추천해요."],
+    ["login", /로그인|회원가입/, "내 정보 탭에서 로그인하거나 회원가입할 수 있어요."]
   ];
-
-  const search = await searchWebSummary(message);
-  if (search.answer) {
-    return {
-      intent: "search",
-      answer: search.answer,
-      suggestions: ["관련 링크 확인", "더 구체적으로 질문하기", "메모장에 기록하기"],
-      links: search.links
-    };
+  if (message.length <= 40 && /방법|사용법|어디|어떻게\s*(쓰|사용|하)|뭔가요/.test(message)) {
+    const match = faq.find(([, pattern]) => pattern.test(message));
+    if (match) return reply(match[0], match[2]);
   }
 
-  const matched = intents.find((intent) => intent.keywords.some((keyword) => text.includes(keyword)));
-  if (matched) {
-    return {
-      intent: matched.id,
-      answer: matched.answer,
-      suggestions: matched.suggestions,
-      links: createSearchLinks(message)
-    };
-  }
+  const fallback = reply("fallback", "지금은 AI 상담에 연결할 수 없어요. 앱 사용법은 바로 안내해 드릴게요.");
+  const { GROQ_API_KEY: key, GROQ_MODEL: model, GROQ_API_BASE_URL } = process.env;
+  if (!key || !model) return fallback;
 
-  return {
-    intent: "fallback",
-    answer:
-      "지금은 기본 문의만 자동 응답할 수 있습니다. 로그인, 냉장고 재료 털기, 재료 DB, 관리자, 메모장, 자취 장바구니, 놀곳추천, 꿀팁방출기 중 하나를 물어보면 더 정확히 답할게요.",
-    suggestions: ["냉장고 재료 털기는 어떻게 해?", "서울 놀곳 알려줘", "자취 필수품 알려줘"],
-    links: createSearchLinks(message)
-  };
-}
-
-async function searchWebSummary(query) {
-  const encoded = encodeURIComponent(query);
-  const url = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`;
+  const recent = (Array.isArray(history) ? history : [])
+    .filter(m => ["user", "assistant"].includes(m?.role) && typeof m.content === "string")
+    .map(m => ({ role: m.role, content: normalizeShortText(m.content, 500) }))
+    .filter(m => m.content)
+    .slice(-6);
 
   try {
-    const data = JSON.parse(await requestTextWithTimeout(url, 3500));
-    const related = extractDuckDuckGoRelatedTopic(data.RelatedTopics);
-    const answer = normalizeShortText(data.AbstractText || data.Answer || related?.text || "", 900);
-    const links = [
-      ...uniqueSearchLinks([
-        data.AbstractURL ? { name: data.Heading || "DuckDuckGo result", url: data.AbstractURL } : null,
-        related?.url ? { name: "Related result", url: related.url } : null,
-        ...createSearchLinks(query)
-      ])
-    ];
-
-    return {
-      answer,
-      links
-    };
-  } catch {
-    return { answer: "", links: createSearchLinks(query) };
-  }
-}
-
-function requestTextWithTimeout(url, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const request = https.get(
-      url,
-      {
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "curl/8.0"
-        },
-        timeout: timeoutMs
-      },
-      (response) => {
-        if (response.statusCode && response.statusCode >= 400) {
-          response.resume();
-          reject(new Error(`Search request failed with ${response.statusCode}`));
-          return;
-        }
-
-        let body = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk) => {
-          body += chunk;
-        });
-        response.on("end", () => resolve(body));
-      }
-    );
-
-    request.on("timeout", () => {
-      request.destroy(new Error("Search request timed out."));
+    const base = trimTrailingSlash(GROQ_API_BASE_URL || "https://api.groq.com/openai/v1");
+    const response = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({
+        model,
+        max_tokens: 300,
+        messages: [
+          { role: "system", content: "냉털 앱 상담원으로서 자취·요리 질문에 한국어로 간결히 답하세요. 확인할 수 없는 정보는 명시하세요." },
+          ...recent,
+          { role: "user", content: message }
+        ]
+      })
     });
-    request.on("error", reject);
-  });
-}
+    if (!response.ok) return fallback;
 
-function extractDuckDuckGoRelatedTopic(topics) {
-  if (!Array.isArray(topics)) {
-    return null;
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    const answer = typeof content === "string" && stripAiReasoning(content);
+    return answer ? reply("ai", answer.slice(0, 1200)) : fallback;
+  } catch {
+    return fallback;
   }
-
-  for (const topic of topics) {
-    if (topic?.Text && topic?.FirstURL) {
-      return {
-        text: topic.Text,
-        url: topic.FirstURL
-      };
-    }
-
-    const nested = extractDuckDuckGoRelatedTopic(topic?.Topics);
-    if (nested) {
-      return nested;
-    }
-  }
-
-  return null;
-}
-
-function createSearchLinks(query) {
-  const encoded = encodeURIComponent(query);
-  return [
-    {
-      name: "네이버 검색",
-      url: `https://search.naver.com/search.naver?query=${encoded}`
-    },
-    {
-      name: "Google 검색",
-      url: `https://www.google.com/search?q=${encoded}`
-    },
-    {
-      name: "DuckDuckGo 검색",
-      url: `https://duckduckgo.com/?q=${encoded}`
-    }
-  ];
-}
-
-function uniqueSearchLinks(links) {
-  const seen = new Set();
-  return links.filter((link) => {
-    if (!link?.url || seen.has(link.url)) {
-      return false;
-    }
-    seen.add(link.url);
-    return true;
-  });
 }
 
 function buildAdminOverview(data, currentUserId, options = {}) {

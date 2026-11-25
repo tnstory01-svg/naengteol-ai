@@ -12,6 +12,23 @@ async function dbWith(value) {
   return { db: new LocalDatabase(file), dir };
 }
 
+test("failed mutations stay out of later reads and writes", async () => {
+  const { db, dir } = await dbWith({ users: [] });
+  try {
+    await assert.rejects(db.mutate(data => {
+      data.users.push({ id: "rejected" });
+      throw new Error("rejected");
+    }), /rejected/);
+    const file = db.filePath;
+    db.filePath = path.join(file, "unwritable.json");
+    await assert.rejects(db.mutate(data => data.users.push({ id: "unsaved" })));
+    db.filePath = file;
+    assert.deepEqual(await db.get(data => data.users), []);
+    await db.mutate(data => data.users.push({ id: "saved" }));
+    assert.deepEqual(JSON.parse(await readFile(file, "utf8")).users, [{ id: "saved" }]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test("owned CRUD preserves ordering, isolation, and persisted updates", async () => {
   const { db, dir } = await dbWith({ pantryItems: [], userShortcuts: [] });
   const guest = { userId: null, guestSessionId: "g1" };
